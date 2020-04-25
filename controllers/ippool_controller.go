@@ -21,13 +21,12 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"google.golang.org/appengine/log"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	ipamv1alpha1 "github.com/jbliao/kubeipam/api/v1alpha1"
-	"github.com/jbliao/kubeipam/pkg/driver"
+	"github.com/jbliao/kubeipam/pkg/crd/driver"
 )
 
 // IPPoolReconciler reconciles a IPPool object
@@ -40,10 +39,10 @@ type IPPoolReconciler struct {
 // +kubebuilder:rbac:groups=ipam.k8s.cc.cs.nctu.edu.tw,resources=ippools,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ipam.k8s.cc.cs.nctu.edu.tw,resources=ippools/status,verbs=get;update;patch
 
+// Reconcile ...
 func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
-	_ = r.Log.WithValues("ippool", req.NamespacedName)
-
+	logger := r.Log.WithValues("ippool", req.NamespacedName)
 	// your logic here
 
 	var driverObj driver.Driver
@@ -64,7 +63,7 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	if err := driver.Sync(driverObj, &pool.Spec); err != nil {
-		log.Errorf(ctx, "%v", err)
+		logger.Error(err, "")
 		goto REQUEUE_N_ERROR
 	}
 
@@ -74,6 +73,7 @@ REQUEUE_N_ERROR:
 	return ctrl.Result{Requeue: true}, err
 }
 
+// SetupWithManager ...
 func (r *IPPoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ipamv1alpha1.IPPool{}).
