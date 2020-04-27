@@ -63,53 +63,59 @@ func (p *KubeIPAMPool) GetFirstAndLastAddress() (net.IP, net.IP, error) {
 		return nil, nil, err
 	}
 
-	endIP, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
+	ip, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
 	if err != nil {
 		return nil, nil, err
 	}
-	firstIP := cni.IncreaseIP(ipnet.IP)
 
-	for idx := range endIP {
-		endIP[idx] = endIP[idx] | ipnet.Mask[idx]
+	var lastIP, firstIP net.IP
+	firstIP = cni.IncreaseIP(ipnet.IP)
+	if len(ipnet.Mask) == 4 { //ipv4
+		lastIP = ip.To4()
 	}
-	endIP[len(endIP)-1]--
 
-	return firstIP, endIP, nil
+	for idx := range lastIP {
+		lastIP[idx] |= ^ipnet.Mask[idx]
+	}
+	lastIP[len(lastIP)-1]--
+
+	return firstIP, lastIP, nil
 }
 
 // CheckAddressAvailable check whether the given ip address is in pool's range,
 // and not in allocations
-func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) bool {
+func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 	if err := p.ensureCache(); err != nil {
-		return false
+		return false, err
 	}
 
 	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	if !ipnet.Contains(ip) {
-		return false
+		return false, nil
 	}
 
 	for _, alc := range p.cache.Spec.Allocations {
-		alcaddr, _, err := net.ParseCIDR(alc.Address)
-		if err != nil {
-			return false
+		alcaddr := net.ParseIP(alc.Address)
+		if alcaddr == nil {
+			return false, nil
 		}
 		if ip.Equal(alcaddr) {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 // MarkAddressUsedBy append an IPAllocation object to allocations list. and call
 // updateWithCache()
 func (p *KubeIPAMPool) MarkAddressUsedBy(ip net.IP, usedBy string) error {
-	if !p.CheckAddressAvailable(ip) {
-		return fmt.Errorf("address not available")
+	ok, err := p.CheckAddressAvailable(ip)
+	if !ok {
+		return fmt.Errorf("address not available: %v", err)
 	}
 	p.cache.Spec.Allocations = append(p.cache.Spec.Allocations,
 		v1alpha1.IPAllocation{

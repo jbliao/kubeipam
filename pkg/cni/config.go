@@ -12,6 +12,7 @@ type IPAMConf struct {
 	PoolNamespace  string `json:"poolNamespace"`
 	Mask           string `json:"mask"`
 	Gateway        string `json:"gateway"`
+	LogFile        string `json:"logFile"`
 }
 
 // PluginConf extend official's cni conf, but use custom ipamconf

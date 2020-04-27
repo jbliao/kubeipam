@@ -2,6 +2,7 @@ package allocator
 
 import (
 	"fmt"
+	"log"
 	"net"
 
 	"github.com/jbliao/kubeipam/pkg/cni"
@@ -20,13 +21,18 @@ func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (net.IP, er
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Allocate: got firstIP and lastIP %v %v", firstIP, lastIP)
 	for ; !firstIP.Equal(lastIP); firstIP = cni.IncreaseIP(firstIP) {
-		if pool.CheckAddressAvailable(firstIP) {
+		ok, err := pool.CheckAddressAvailable(firstIP)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			break
 		}
 	}
 	if firstIP.Equal(lastIP) {
-		return nil, fmt.Errorf("cannot allocate address")
+		return nil, fmt.Errorf("cannot allocate address %v %v", firstIP, lastIP)
 	}
 
 	if err := pool.MarkAddressUsedBy(firstIP, usedBy); err != nil {

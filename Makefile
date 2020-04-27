@@ -25,6 +25,9 @@ manager: generate fmt vet
 cni:
 	go build -o bin/cccni cmd/cccni/main.go
 
+install-cni: cni
+	install -m 755 bin/cccni /opt/cni/bin
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
 	go run ./main.go

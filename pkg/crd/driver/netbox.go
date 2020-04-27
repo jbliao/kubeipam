@@ -81,16 +81,18 @@ func (d *NetboxDriver) GetAllocatedList(poolName string) ([]string, error) {
 func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocation) error {
 
 	// Do ip address in range check
-	ip, _, err := net.ParseCIDR(alc.Address)
-	if err != nil {
-		return err
+	ip := net.ParseIP(alc.Address)
+	if ip == nil {
+		return fmt.Errorf("Cannot parse address to ip in allocations")
 	}
-	if _, pool, _ := net.ParseCIDR(poolName); !pool.Contains(ip) {
+	var pool *net.IPNet
+	if _, pool, _ = net.ParseCIDR(poolName); !pool.Contains(ip) {
 		return fmt.Errorf("IPAddress %s is not in range %s", alc, poolName)
 	}
 
+	addr := (&net.IPNet{IP: ip, Mask: pool.Mask}).String()
 	data := &models.WritableIPAddress{
-		Address: &alc.Address,
+		Address: &addr,
 		Tags:    []string{},
 	}
 	response, err := d.Client.Ipam.IpamIPAddressesCreate(

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
@@ -39,29 +40,45 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	if conf.IPAM.LogFile != "" {
+		f, err := os.OpenFile(conf.IPAM.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
+		if err == nil {
+			log.SetOutput(f)
+		}
+	}
 	log.Printf("cmdAdd begin")
 
 	pool, err := pool.NewKubeIPAMPool(&conf.IPAM)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 
 	alctr, err := allocator.NewRoundRobinAllocator()
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 
 	ip, err := alctr.Allocate(pool, args.ContainerID)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
+
+	tmp := net.ParseIP(conf.IPAM.Mask)
+	if tmp == nil {
+		log.Println(err)
+		return err
+	}
+	tmp = tmp.To4()
 
 	result := &current.Result{
 		IPs: []*current.IPConfig{{
 			Version: "4",
 			Address: net.IPNet{
 				IP:   ip,
-				Mask: interface{}(net.ParseIP(conf.IPAM.Mask)).(net.IPMask),
+				Mask: net.IPv4Mask(tmp[0], tmp[1], tmp[2], tmp[3]),
 			},
 			Gateway: net.ParseIP(conf.IPAM.Gateway),
 		}},
@@ -74,7 +91,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}},
 	}
 
-	log.Printf("cmdAdd end")
+	log.Printf("cmdAdd end %v", result)
 
 	return types.PrintResult(result, conf.CNIVersion)
 }
@@ -84,17 +101,26 @@ func cmdDel(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	if conf.IPAM.LogFile != "" {
+		f, err := os.OpenFile(conf.IPAM.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
+		if err == nil {
+			log.SetOutput(f)
+		}
+	}
 	log.Printf("cmdDel begin")
 
 	pool, err := pool.NewKubeIPAMPool(&conf.IPAM)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 
 	alctr, err := allocator.NewRoundRobinAllocator()
 	if err != nil {
+		log.Println(err)
 		return err
 	}
+	log.Printf("cmdDel end")
 
 	return alctr.ReleaseBy(pool, args.ContainerID)
 }
