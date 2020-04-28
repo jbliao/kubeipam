@@ -8,11 +8,16 @@ import (
 	"github.com/jbliao/kubeipam/pkg/cni"
 )
 
-type RoundRobinAllocator struct{}
+type RoundRobinAllocator struct {
+	logger *log.Logger
+}
 
 // NewRoundRobinAllocator ...
-func NewRoundRobinAllocator() (*RoundRobinAllocator, error) {
-	return &RoundRobinAllocator{}, nil
+func NewRoundRobinAllocator(logger *log.Logger) (*RoundRobinAllocator, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("nil logger in NewRoundRobinAllocator")
+	}
+	return &RoundRobinAllocator{logger: logger}, nil
 }
 
 // Allocate TODO
@@ -21,7 +26,7 @@ func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (net.IP, er
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Allocate: got firstIP and lastIP %v %v", firstIP, lastIP)
+	a.logger.Printf("Allocate: got firstIP and lastIP %v %v", firstIP, lastIP)
 	for ; !firstIP.Equal(lastIP); firstIP = cni.IncreaseIP(firstIP) {
 		ok, err := pool.CheckAddressAvailable(firstIP)
 		if err != nil {
@@ -32,7 +37,9 @@ func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (net.IP, er
 		}
 	}
 	if firstIP.Equal(lastIP) {
-		return nil, fmt.Errorf("cannot allocate address %v %v", firstIP, lastIP)
+		err := fmt.Errorf("cannot allocate address %v %v", firstIP, lastIP)
+		a.logger.Println(err)
+		return nil, err
 	}
 
 	if err := pool.MarkAddressUsedBy(firstIP, usedBy); err != nil {

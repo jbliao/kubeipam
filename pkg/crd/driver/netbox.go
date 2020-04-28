@@ -18,6 +18,7 @@ import (
 type NetboxDriver struct {
 	Config NetboxDriverConfig
 	Client *client.NetBox
+	logger *log.Logger
 }
 
 type NetboxDriverConfig struct {
@@ -26,12 +27,17 @@ type NetboxDriverConfig struct {
 	Debug  bool   `json:"debug"`
 }
 
-func NewNetboxDriver(rawConfig string) (*NetboxDriver, error) {
+func NewNetboxDriver(rawConfig string, logger *log.Logger) (*NetboxDriver, error) {
 	ret := &NetboxDriver{}
+	if logger == nil {
+		return nil, fmt.Errorf("nil logger in NewNetboxDriver")
+	}
+	ret.logger = logger
 	if err := json.Unmarshal([]byte(rawConfig), &ret.Config); err != nil {
 		return nil, err
 	}
 	if ret.Config.Debug {
+		logger.Println("Handle netbox in debug mode.")
 		t := runtimeclient.New(ret.Config.Host, client.DefaultBasePath, client.DefaultSchemes)
 		t.SetDebug(true)
 		t.DefaultAuthentication =
@@ -51,7 +57,11 @@ func NewNetboxDriver(rawConfig string) (*NetboxDriver, error) {
 // In Netbox they are the same value. So here just check the range fit cidr format
 func (d *NetboxDriver) RangeToPoolName(rng string) (string, error) {
 	_, _, err := net.ParseCIDR(rng)
-	return rng, err
+	if err != nil {
+		d.logger.Println(err)
+		return "", err
+	}
+	return rng, nil
 }
 
 func (d *NetboxDriver) getAllocatedList(poolName string) ([]*models.IPAddress, error) {
@@ -59,6 +69,7 @@ func (d *NetboxDriver) getAllocatedList(poolName string) ([]*models.IPAddress, e
 		ipam.NewIpamIPAddressesListParams().
 			WithParent(&poolName), nil)
 	if err != nil {
+		d.logger.Println(err)
 		return nil, err
 	}
 	return response.Payload.Results, nil
@@ -83,11 +94,15 @@ func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocati
 	// Do ip address in range check
 	ip := net.ParseIP(alc.Address)
 	if ip == nil {
-		return fmt.Errorf("Cannot parse address to ip in allocations")
+		err := fmt.Errorf("Cannot parse address to ip in allocations")
+		d.logger.Println(err)
+		return err
 	}
-	var pool *net.IPNet
-	if _, pool, _ = net.ParseCIDR(poolName); !pool.Contains(ip) {
-		return fmt.Errorf("IPAddress %s is not in range %s", alc, poolName)
+	_, pool, _ := net.ParseCIDR(poolName)
+	if !pool.Contains(ip) {
+		err := fmt.Errorf("IPAddress %s is not in range %s", alc, poolName)
+		d.logger.Println(err)
+		return err
 	}
 
 	addr := (&net.IPNet{IP: ip, Mask: pool.Mask}).String()
@@ -99,11 +114,8 @@ func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocati
 		ipam.NewIpamIPAddressesCreateParams().WithData(data),
 		nil,
 	)
-	if err != nil {
-		return err
-	}
-	log.Printf("Netbox create ipaddress with response %v", response)
-	return nil
+	d.logger.Printf("Netbox create ipaddress with response: %v -- err: %v", response, err)
+	return err
 }
 
 func (d *NetboxDriver) DeleteAllocated(poolName string, address string) error {
@@ -127,7 +139,7 @@ func (d *NetboxDriver) DeleteAllocated(poolName string, address string) error {
 		ipam.NewIpamIPAddressesDeleteParams().WithID(*id),
 		nil,
 	)
-	log.Printf("Netbox delete ipaddress with response %v", response)
+	d.logger.Printf("Netbox delete ipaddress with response %v -- err: %v", response, err)
 
 	return err
 }

@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +44,7 @@ type IPPoolReconciler struct {
 func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	logger := r.Log.WithValues("ippool", req.NamespacedName)
+	gologger := log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
 	// your logic here
 
 	var driverObj driver.Driver
@@ -54,7 +56,7 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	switch tp := pool.Spec.Type; tp {
 	case "netbox":
-		driverObj, err = driver.NewNetboxDriver(pool.Spec.RawConfig)
+		driverObj, err = driver.NewNetboxDriver(pool.Spec.RawConfig, gologger)
 	default:
 		driverObj, err = nil, fmt.Errorf("Type %s not implemented", tp)
 	}
@@ -62,7 +64,7 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		goto REQUEUE_N_ERROR
 	}
 
-	if err := driver.Sync(driverObj, &pool.Spec); err != nil {
+	if err := driver.Sync(driverObj, &pool.Spec, gologger); err != nil {
 		logger.Error(err, "")
 		goto REQUEUE_N_ERROR
 	}

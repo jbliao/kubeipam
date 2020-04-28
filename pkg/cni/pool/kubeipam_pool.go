@@ -3,6 +3,7 @@ package pool
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 
 	"github.com/jbliao/kubeipam/api/v1alpha1"
@@ -15,26 +16,36 @@ import (
 type KubeIPAMPool struct {
 	client *clientset.IPPoolClient
 	config *cni.IPAMConf
+	logger *log.Logger
 	cache  *v1alpha1.IPPool
 }
 
 // NewKubeIPAMPool construct a KubeIPAMPool object
-func NewKubeIPAMPool(ipamConf *cni.IPAMConf) (*KubeIPAMPool, error) {
+func NewKubeIPAMPool(ipamConf *cni.IPAMConf, logger *log.Logger) (*KubeIPAMPool, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("nil logger in NewKubeIPAMPool")
+	}
+
 	config, err := clientcmd.BuildConfigFromFlags("", ipamConf.KubeConfigPath)
 	if err != nil {
+		logger.Println(err)
 		return nil, err
 	}
-	client, err := clientset.NewForConfig(config)
+	client, err := clientset.NewForConfig(config, logger)
 
 	if ipamConf.PoolNamespace == "" {
 		//decide namespace from Kubectl Context if not given
+		logger.Printf("PoolNamespace is empty, decide from context")
 		var namespace string
 		if cfg, err := clientcmd.LoadFromFile(ipamConf.KubeConfigPath); err != nil {
+			logger.Println(err)
 			return nil, err
 		} else if ctx, ok := cfg.Contexts[cfg.CurrentContext]; ok && ctx != nil {
 			namespace = ctx.Namespace
 		} else {
-			return nil, fmt.Errorf("k8s config: namespace not present in context")
+			err := fmt.Errorf("k8s config: namespace not present in context")
+			logger.Println(err)
+			return nil, err
 		}
 		ipamConf.PoolNamespace = namespace
 	}
@@ -42,6 +53,7 @@ func NewKubeIPAMPool(ipamConf *cni.IPAMConf) (*KubeIPAMPool, error) {
 	return &KubeIPAMPool{
 		client: client,
 		config: ipamConf,
+		logger: logger,
 	}, nil
 }
 
@@ -54,7 +66,11 @@ func (p *KubeIPAMPool) ensureCache() error {
 }
 
 func (p *KubeIPAMPool) updateWithCache() error {
-	return p.client.Update(context.Background(), p.cache)
+	err := p.client.Update(context.Background(), p.cache)
+	if err != nil {
+		p.logger.Println(err)
+	}
+	return err
 }
 
 // GetFirstAndLastAddress get first and last address to this pool
@@ -65,6 +81,7 @@ func (p *KubeIPAMPool) GetFirstAndLastAddress() (net.IP, net.IP, error) {
 
 	ip, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
 	if err != nil {
+		p.logger.Println(err)
 		return nil, nil, err
 	}
 
@@ -91,6 +108,7 @@ func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 
 	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
 	if err != nil {
+		p.logger.Println(err)
 		return false, err
 	}
 
@@ -115,7 +133,9 @@ func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 func (p *KubeIPAMPool) MarkAddressUsedBy(ip net.IP, usedBy string) error {
 	ok, err := p.CheckAddressAvailable(ip)
 	if !ok {
-		return fmt.Errorf("address not available: %v", err)
+		err := fmt.Errorf("address not available: %v", err)
+		p.logger.Println(err)
+		return err
 	}
 	p.cache.Spec.Allocations = append(p.cache.Spec.Allocations,
 		v1alpha1.IPAllocation{
@@ -134,6 +154,7 @@ func (p *KubeIPAMPool) MarkAddressReleasedBy(ip net.IP, usedBy string) error {
 	for idx, alc := range p.cache.Spec.Allocations {
 		if ip.Equal(net.ParseIP(alc.Address)) || alc.ContainerID == usedBy {
 			//remove
+			p.logger.Printf("Found allocation to release: %v", alc)
 			p.cache.Spec.Allocations = append(
 				p.cache.Spec.Allocations[:idx],
 				p.cache.Spec.Allocations[idx+1:]...,
@@ -141,5 +162,7 @@ func (p *KubeIPAMPool) MarkAddressReleasedBy(ip net.IP, usedBy string) error {
 			return p.updateWithCache()
 		}
 	}
-	return fmt.Errorf("address %v or usedBy %s not found", ip, usedBy)
+	err := fmt.Errorf("address %v or usedBy %s not found", ip, usedBy)
+	p.logger.Println(err)
+	return err
 }

@@ -2,6 +2,8 @@ package clientset
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	ipamv1alpha1 "github.com/jbliao/kubeipam/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -13,16 +15,21 @@ import (
 
 type IPPoolClient struct {
 	client.Client
+	logger *log.Logger
 }
 
 // NewForConfig ...
-func NewForConfig(c *rest.Config) (*IPPoolClient, error) {
+func NewForConfig(c *rest.Config, logger *log.Logger) (*IPPoolClient, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("nil logger in NewForConfig")
+	}
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = ipamv1alpha1.AddToScheme(scheme)
 
 	kubeclient, err := client.New(c, client.Options{Scheme: scheme})
 	if err != nil {
+		logger.Println(err)
 		return nil, err
 	}
 
@@ -36,6 +43,7 @@ func (c *IPPoolClient) GetIPPool(namespace, name string) (*ipamv1alpha1.IPPool, 
 		types.NamespacedName{Name: name, Namespace: namespace},
 		pool,
 	); err != nil {
+		c.logger.Println(err)
 		return nil, err
 	}
 	return pool, nil

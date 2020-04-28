@@ -35,26 +35,31 @@ func loadNetConf(bytes []byte) (*cni.PluginConf, error) {
 	return conf, nil
 }
 
+func setupLog(logFile string) *log.Logger {
+	if logFile != "" {
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
+		if err == nil {
+			log.SetOutput(f)
+		}
+	}
+	return log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
+}
+
 func cmdAdd(args *skel.CmdArgs) error {
 	conf, err := loadNetConf(args.StdinData)
 	if err != nil {
 		return err
 	}
-	if conf.IPAM.LogFile != "" {
-		f, err := os.OpenFile(conf.IPAM.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
-		if err == nil {
-			log.SetOutput(f)
-		}
-	}
-	log.Printf("cmdAdd begin")
+	logger := setupLog(conf.IPAM.LogFile)
+	logger.Printf("cmdAdd begin")
 
-	pool, err := pool.NewKubeIPAMPool(&conf.IPAM)
+	pool, err := pool.NewKubeIPAMPool(&conf.IPAM, logger)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator()
+	alctr, err := allocator.NewRoundRobinAllocator(logger)
 	if err != nil {
 		log.Println(err)
 		return err
@@ -101,26 +106,19 @@ func cmdDel(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	if conf.IPAM.LogFile != "" {
-		f, err := os.OpenFile(conf.IPAM.LogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
-		if err == nil {
-			log.SetOutput(f)
-		}
-	}
+	logger := setupLog(conf.IPAM.LogFile)
 	log.Printf("cmdDel begin")
 
-	pool, err := pool.NewKubeIPAMPool(&conf.IPAM)
+	pool, err := pool.NewKubeIPAMPool(&conf.IPAM, logger)
 	if err != nil {
-		log.Println(err)
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator()
+	alctr, err := allocator.NewRoundRobinAllocator(logger)
 	if err != nil {
-		log.Println(err)
 		return err
 	}
-	log.Printf("cmdDel end")
 
-	return alctr.ReleaseBy(pool, args.ContainerID)
+	log.Printf("cmdDel end with err: %v", alctr.ReleaseBy(pool, args.ContainerID))
+	return nil
 }
