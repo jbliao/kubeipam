@@ -15,18 +15,21 @@ import (
 	"github.com/netbox-community/go-netbox/netbox/models"
 )
 
+// NetboxDriver impl the Driver interface with netbox support
 type NetboxDriver struct {
 	Config NetboxDriverConfig
 	Client *client.NetBox
 	logger *log.Logger
 }
 
+// NetboxDriverConfig contains the connection info to a netbox service
 type NetboxDriverConfig struct {
 	Host   string `json:"host"`
 	APIKey string `json:"apiKey"`
 	Debug  bool   `json:"debug"`
 }
 
+// NewNetboxDriver construct a NetboxDriver instance with config
 func NewNetboxDriver(rawConfig string, logger *log.Logger) (*NetboxDriver, error) {
 	ret := &NetboxDriver{}
 	if logger == nil {
@@ -75,6 +78,7 @@ func (d *NetboxDriver) getAllocatedList(poolName string) ([]*models.IPAddress, e
 	return response.Payload.Results, nil
 }
 
+// GetAllocatedList get allocated ip in netbox
 func (d *NetboxDriver) GetAllocatedList(poolName string) ([]string, error) {
 	list, err := d.getAllocatedList(poolName)
 	if err != nil {
@@ -89,6 +93,7 @@ func (d *NetboxDriver) GetAllocatedList(poolName string) ([]string, error) {
 	return ret, nil
 }
 
+// CreateAllocated create an ipaddress object in netbox
 func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocation) error {
 
 	// Do ip address in range check
@@ -118,6 +123,7 @@ func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocati
 	return err
 }
 
+// DeleteAllocated delete an ipaddress object in netbox
 func (d *NetboxDriver) DeleteAllocated(poolName string, address string) error {
 	iplist, err := d.getAllocatedList(poolName)
 	if err != nil {

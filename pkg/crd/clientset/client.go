@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// IPPoolClient is a client to access IPPool resource in k8s
 type IPPoolClient struct {
 	client.Client
 	logger *log.Logger
