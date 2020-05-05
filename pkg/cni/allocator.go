@@ -1,10 +1,11 @@
 package cni
 
 import (
-	"net"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
 
 type Allocator interface {
-	Allocate() (net.IP, error)
-	Release(net.IP) error
+	Allocate() (*ipaddr.IPAddress, error)
+	Release(Pool, *ipaddr.IPAddress) error
+	ReleaseBy(Pool, string) error
 }

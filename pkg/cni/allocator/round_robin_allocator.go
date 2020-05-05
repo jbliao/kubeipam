@@ -3,11 +3,12 @@ package allocator
 import (
 	"fmt"
 	"log"
-	"net"
 
 	"github.com/jbliao/kubeipam/pkg/cni"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
 
+// RoundRobinAllocator allocate with first available address
 type RoundRobinAllocator struct {
 	logger *log.Logger
 }
@@ -21,14 +22,14 @@ func NewRoundRobinAllocator(logger *log.Logger) (*RoundRobinAllocator, error) {
 }
 
 // Allocate TODO
-func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (net.IP, error) {
-	firstIP, lastIP, err := pool.GetFirstAndLastAddress()
+func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (*ipaddr.IPAddress, error) {
+	firstAddr, lastAddr, err := pool.GetFirstAndLastAddress()
 	if err != nil {
 		return nil, err
 	}
-	a.logger.Printf("Allocate: got firstIP and lastIP %v %v", firstIP, lastIP)
-	for ; !firstIP.Equal(lastIP); firstIP = cni.IncreaseIP(firstIP) {
-		ok, err := pool.CheckAddressAvailable(firstIP)
+	a.logger.Printf("Allocate: got firstIP and lastIP %v %v", firstAddr, lastAddr)
+	for ; !firstAddr.Equal(lastAddr.IP); firstAddr = firstAddr.IncreaseBy(1) {
+		ok, err := pool.CheckAddressAvailable(firstAddr)
 		if err != nil {
 			return nil, err
 		}
@@ -36,21 +37,21 @@ func (a *RoundRobinAllocator) Allocate(pool cni.Pool, usedBy string) (net.IP, er
 			break
 		}
 	}
-	if firstIP.Equal(lastIP) {
-		err := fmt.Errorf("cannot allocate address %v %v", firstIP, lastIP)
+	if firstAddr.Equal(lastAddr.IP) {
+		err := fmt.Errorf("cannot allocate address %v %v", firstAddr, lastAddr)
 		a.logger.Println(err)
 		return nil, err
 	}
 
-	if err := pool.MarkAddressUsedBy(firstIP, usedBy); err != nil {
+	if err := pool.MarkAddressUsedBy(firstAddr, usedBy); err != nil {
 		return nil, err
 	}
-	return firstIP, nil
+	return firstAddr, nil
 }
 
 // Release TODO
-func (a *RoundRobinAllocator) Release(pool cni.Pool, ip net.IP) error {
-	return pool.MarkAddressReleasedBy(ip, "")
+func (a *RoundRobinAllocator) Release(pool cni.Pool, addr *ipaddr.IPAddress) error {
+	return pool.MarkAddressReleasedBy(addr, "")
 }
 
 // ReleaseBy TODO

@@ -82,7 +82,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		IPs: []*current.IPConfig{{
 			Version: "4",
 			Address: net.IPNet{
-				IP:   ip,
+				IP:   ip.IP,
 				Mask: net.IPv4Mask(tmp[0], tmp[1], tmp[2], tmp[3]),
 			},
 			Gateway: net.ParseIP(conf.IPAM.Gateway),

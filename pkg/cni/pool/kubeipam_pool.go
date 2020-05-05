@@ -9,6 +9,7 @@ import (
 	"github.com/jbliao/kubeipam/api/v1alpha1"
 	"github.com/jbliao/kubeipam/pkg/cni"
 	"github.com/jbliao/kubeipam/pkg/crd/clientset"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -74,34 +75,26 @@ func (p *KubeIPAMPool) updateWithCache() error {
 }
 
 // GetFirstAndLastAddress get first and last address to this pool
-func (p *KubeIPAMPool) GetFirstAndLastAddress() (net.IP, net.IP, error) {
+func (p *KubeIPAMPool) GetFirstAndLastAddress() (*ipaddr.IPAddress, *ipaddr.IPAddress, error) {
 	if err := p.ensureCache(); err != nil {
 		return nil, nil, err
 	}
 
-	ip, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
+	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
 	if err != nil {
 		p.logger.Println(err)
 		return nil, nil, err
 	}
 
-	var lastIP, firstIP net.IP
-	firstIP = cni.IncreaseIP(ipnet.IP)
-	if len(ipnet.Mask) == 4 { //ipv4
-		lastIP = ip.To4()
-	}
-
-	for idx := range lastIP {
-		lastIP[idx] |= ^ipnet.Mask[idx]
-	}
-	lastIP[len(lastIP)-1]--
+	firstIP := ipaddr.NewIPAddress(ipnet.IP).IncreaseBy(1)
+	lastIP := firstIP.GetBroadCastAddressWithMask(ipnet.Mask).IncreaseBy(-1)
 
 	return firstIP, lastIP, nil
 }
 
 // CheckAddressAvailable check whether the given ip address is in pool's range,
 // and not in allocations
-func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
+func (p *KubeIPAMPool) CheckAddressAvailable(addr *ipaddr.IPAddress) (bool, error) {
 	if err := p.ensureCache(); err != nil {
 		return false, err
 	}
@@ -112,7 +105,7 @@ func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 		return false, err
 	}
 
-	if !ipnet.Contains(ip) {
+	if !ipnet.Contains(addr.IP) {
 		return false, nil
 	}
 
@@ -121,7 +114,7 @@ func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 		if alcaddr == nil {
 			return false, nil
 		}
-		if ip.Equal(alcaddr) {
+		if addr.Equal(alcaddr) {
 			return false, nil
 		}
 	}
@@ -130,8 +123,8 @@ func (p *KubeIPAMPool) CheckAddressAvailable(ip net.IP) (bool, error) {
 
 // MarkAddressUsedBy append an IPAllocation object to allocations list. and call
 // updateWithCache()
-func (p *KubeIPAMPool) MarkAddressUsedBy(ip net.IP, usedBy string) error {
-	ok, err := p.CheckAddressAvailable(ip)
+func (p *KubeIPAMPool) MarkAddressUsedBy(addr *ipaddr.IPAddress, usedBy string) error {
+	ok, err := p.CheckAddressAvailable(addr)
 	if !ok {
 		err := fmt.Errorf("address not available: %v", err)
 		p.logger.Println(err)
@@ -139,7 +132,7 @@ func (p *KubeIPAMPool) MarkAddressUsedBy(ip net.IP, usedBy string) error {
 	}
 	p.cache.Spec.Allocations = append(p.cache.Spec.Allocations,
 		v1alpha1.IPAllocation{
-			Address:     ip.String(),
+			Address:     addr.String(),
 			ContainerID: usedBy,
 		},
 	)
@@ -147,12 +140,12 @@ func (p *KubeIPAMPool) MarkAddressUsedBy(ip net.IP, usedBy string) error {
 }
 
 // MarkAddressReleasedBy remove an allocation indicated by ip, and call updateWithCache()
-func (p *KubeIPAMPool) MarkAddressReleasedBy(ip net.IP, usedBy string) error {
+func (p *KubeIPAMPool) MarkAddressReleasedBy(addr *ipaddr.IPAddress, usedBy string) error {
 	if err := p.ensureCache(); err != nil {
 		return err
 	}
 	for idx, alc := range p.cache.Spec.Allocations {
-		if ip.Equal(net.ParseIP(alc.Address)) || alc.ContainerID == usedBy {
+		if addr.Equal(net.ParseIP(alc.Address)) || alc.ContainerID == usedBy {
 			//remove
 			p.logger.Printf("Found allocation to release: %v", alc)
 			p.cache.Spec.Allocations = append(
@@ -162,7 +155,7 @@ func (p *KubeIPAMPool) MarkAddressReleasedBy(ip net.IP, usedBy string) error {
 			return p.updateWithCache()
 		}
 	}
-	err := fmt.Errorf("address %v or usedBy %s not found", ip, usedBy)
+	err := fmt.Errorf("address %s or usedBy %s not found", addr.String(), usedBy)
 	p.logger.Println(err)
 	return err
 }
