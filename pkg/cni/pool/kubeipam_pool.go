@@ -80,7 +80,7 @@ func (p *KubeIPAMPool) GetFirstAndLastAddress() (*ipaddr.IPAddress, *ipaddr.IPAd
 		return nil, nil, err
 	}
 
-	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
+	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Network)
 	if err != nil {
 		p.logger.Println(err)
 		return nil, nil, err
@@ -99,7 +99,7 @@ func (p *KubeIPAMPool) CheckAddressAvailable(addr *ipaddr.IPAddress) (bool, erro
 		return false, err
 	}
 
-	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Range)
+	_, ipnet, err := net.ParseCIDR(p.cache.Spec.Network)
 	if err != nil {
 		p.logger.Println(err)
 		return false, err

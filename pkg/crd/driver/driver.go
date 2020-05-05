@@ -6,26 +6,27 @@ import (
 
 	mapset "github.com/deckarep/golang-set"
 	"github.com/jbliao/kubeipam/api/v1alpha1"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
 
 // Driver for ipam syncing
 type Driver interface {
-	// RangeToPoolName convert ippool's range to driver's pool name
-	RangeToPoolName(r string) (string, error)
+	// NetworkToPoolName convert ippool's network to driver's pool name
+	NetworkToPoolName(network string) (string, error)
 
-	// GetAllocatedList ...
-	GetAllocatedList(poolName string) ([]string, error)
+	// GetAddresses get all address of this pool
+	GetAddresses(poolName string) ([]*ipaddr.IPAddress, error)
 
-	// EnsureAllocated ensures that allocation is mark allocated in the ipam
-	CreateAllocated(poolName string, alc *v1alpha1.IPAllocation) error
+	// MarkAddressAllocated ensures that allocation is mark allocated in the ipam
+	MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error
 
-	// EnsureUnAllocated do the reverse
-	DeleteAllocated(poolName string, address string) error
+	// MarkAddressReleased do the reverse
+	MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error
 }
 
-// Sync sync the allocations in spec with the pool identified by spec.Range
+// Sync sync the allocations in spec with the pool identified by spec.Network
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
-	poolName, err := d.RangeToPoolName(spec.Range)
+	poolName, err := d.NetworkToPoolName(spec.Network)
 	if err != nil {
 		return err
 	}

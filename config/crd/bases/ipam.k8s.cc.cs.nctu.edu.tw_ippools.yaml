@@ -51,9 +51,9 @@ spec:
                 - id
                 type: object
               type: array
-            range:
-              description: Range is a RFC 4632/4291-style string that represents an
-                IP address and prefix length in CIDR notation
+            network:
+              description: Network is a RFC 4632/4291-style string that represents
+                an IP address and prefix length in CIDR notation
               type: string
             rawConfig:
               description: RawConfig is the driver specific configuration in raw json
@@ -64,8 +64,7 @@ spec:
                 IPPool
               type: string
           required:
-          - allocations
-          - range
+          - network
           - rawConfig
           - type
           type: object
