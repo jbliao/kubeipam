@@ -40,6 +40,9 @@ type IPPoolSpec struct {
 	// +kubebuilder:validation:Optional
 	Allocations []IPAllocation `json:"allocations"`
 
+	// Addresses is the set of allocable ip address
+	Addresses []string `json:"addresses"`
+
 	// Type defined type of the external IPAM service to this IPPool
 	Type string `json:"type"`
 

@@ -59,7 +59,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator(logger)
+	alctr, err := allocator.NewBasicAllocator(logger)
 	if err != nil {
 		log.Println(err)
 		return err
@@ -114,11 +114,11 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator(logger)
+	alctr, err := allocator.NewBasicAllocator(logger)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("cmdDel end with err: %v", alctr.ReleaseBy(pool, args.ContainerID))
+	log.Printf("cmdDel end with err: %v", alctr.Release(pool, nil, args.ContainerID))
 	return nil
 }

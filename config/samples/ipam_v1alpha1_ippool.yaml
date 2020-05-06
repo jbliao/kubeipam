@@ -4,12 +4,9 @@ metadata:
   name: ippool-sample
 spec:
   type: "netbox"
-  allocations:
-    - address: "10.10.10.2/24"
-      id: "jdklwajdiwaldawd"
-    - address: "10.10.10.3/24"
-      id: "jdklwajdiwaldawd"
-  range: "10.10.10.0/24"
+  addresses: []
+  allocations: []
+  network: "10.10.10.0/24"
   rawConfig: |
     {
       "host": "10.152.183.164",

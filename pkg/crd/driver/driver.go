@@ -1,10 +1,10 @@
 package driver
 
 import (
+	"fmt"
 	"log"
 	"net"
 
-	mapset "github.com/deckarep/golang-set"
 	"github.com/jbliao/kubeipam/api/v1alpha1"
 	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
@@ -26,48 +26,42 @@ type Driver interface {
 
 // Sync sync the allocations in spec with the pool identified by spec.Network
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
+
 	poolName, err := d.NetworkToPoolName(spec.Network)
 	if err != nil {
 		return err
 	}
-	alctedlst, err := d.GetAllocatedList(poolName)
+
+	ipamAddrLst, err := d.GetAddresses(poolName)
 	if err != nil {
 		return err
 	}
 
-	// alctedset is the address set read from driver
-	alctedset := mapset.NewSet()
-	for _, alcted := range alctedlst {
-		ip, _, err := net.ParseCIDR(alcted)
-		if err != nil {
-			logger.Println(err)
-			return err
-		}
-		logger.Printf("alctedset add \"%v\"", ip.String())
-		alctedset.Add(ip.String())
+	// Sync addresses
+	// Every addresses in driver is force sync to ippool now.
+	spec.Addresses = []string{}
+	for _, ipamAddr := range ipamAddrLst {
+		spec.Addresses = append(spec.Addresses, ipamAddr.String())
 	}
 
-	// alcionset is the address set read from kubernetes
-	alcionset := mapset.NewSet()
-	for _, alction := range spec.Allocations {
-		alcionset.Add(alction.Address)
-		logger.Printf("alcionset add \"%v\"", alction.Address)
-		if !alctedset.Contains(alction.Address) {
-			if err := d.CreateAllocated(poolName, &alction); err != nil {
-				return err
+	// Sync allocations
+	// Every allocations in ippool is force sync to driver now.
+	for _, ipamAddr := range ipamAddrLst {
+		var toRelease bool = true
+		for _, poolAddr := range spec.Addresses {
+			ip := net.ParseIP(poolAddr)
+			if ip == nil {
+				return fmt.Errorf("sync failed")
+			}
+			if ipamAddr.Equal(ip) {
+				toRelease = false
+				break
 			}
 		}
-	}
-
-	for _, alcted := range alctedlst {
-		ip, _, err := net.ParseCIDR(alcted)
-		if err != nil {
-			logger.Println(err)
-			return err
-		}
-		if !alcionset.Contains(ip.String()) {
-			logger.Printf("Deleting %v", alcted)
-			d.DeleteAllocated(poolName, alcted)
+		if toRelease {
+			d.MarkAddressReleased(poolName, ipamAddr)
+		} else {
+			d.MarkAddressAllocated(poolName, ipamAddr)
 		}
 	}
 	return nil

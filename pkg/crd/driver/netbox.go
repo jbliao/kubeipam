@@ -79,8 +79,8 @@ func (d *NetboxDriver) getAddresses(poolName string) ([]*models.IPAddress, error
 	return response.Payload.Results, nil
 }
 
-// GetAllocatedList get allocated ip in netbox
-func (d *NetboxDriver) GetAllocatedList(poolName string) ([]*ipaddr.IPAddress, error) {
+// GetAddresses get allocated ip in netbox
+func (d *NetboxDriver) GetAddresses(poolName string) ([]*ipaddr.IPAddress, error) {
 	list, err := d.getAddresses(poolName)
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (d *NetboxDriver) GetAllocatedList(poolName string) ([]*ipaddr.IPAddress, e
 	return ret, nil
 }
 
-// MarkAddressAllocated create an ipaddress object in netbox
+// MarkAddressAllocated add "k8s-allocated" tag of netbox ipaddress resource
 func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error {
 
 	_, pool, _ := net.ParseCIDR(poolName)
@@ -124,7 +124,7 @@ func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddr
 	return err
 }
 
-// MarkAddressReleased delete an ipaddress object in netbox
+// MarkAddressReleased remove "k8s-allocated" tag of netbox ipaddress resource
 func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error {
 	iplist, err := d.getAddresses(poolName)
 	if err != nil {
