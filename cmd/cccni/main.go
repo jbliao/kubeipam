@@ -55,25 +55,28 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	pool, err := pool.NewKubeIPAMPool(&conf.IPAM, logger)
 	if err != nil {
-		log.Println(err)
+		logger.Println(err)
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator(logger)
+	alctr, err := allocator.NewBasicAllocator(logger)
 	if err != nil {
-		log.Println(err)
+		logger.Println(err)
 		return err
 	}
 
+	logger.Println("Allocating ip for", args.ContainerID)
 	ip, err := alctr.Allocate(pool, args.ContainerID)
 	if err != nil {
-		log.Println(err)
+		logger.Println(err)
 		return err
 	}
+
+	logger.Println("Get ip from allocator", ip)
 
 	tmp := net.ParseIP(conf.IPAM.Mask)
 	if tmp == nil {
-		log.Println(err)
+		logger.Println(err)
 		return err
 	}
 	tmp = tmp.To4()
@@ -96,7 +99,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}},
 	}
 
-	log.Printf("cmdAdd end %v", result)
+	logger.Printf("cmdAdd end %v", result)
 
 	return types.PrintResult(result, conf.CNIVersion)
 }
@@ -107,18 +110,20 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 	logger := setupLog(conf.IPAM.LogFile)
-	log.Printf("cmdDel begin")
+	logger.Printf("cmdDel begin")
 
 	pool, err := pool.NewKubeIPAMPool(&conf.IPAM, logger)
 	if err != nil {
+		logger.Println(err)
 		return err
 	}
 
-	alctr, err := allocator.NewRoundRobinAllocator(logger)
+	alctr, err := allocator.NewBasicAllocator(logger)
 	if err != nil {
+		logger.Println(err)
 		return err
 	}
 
-	log.Printf("cmdDel end with err: %v", alctr.ReleaseBy(pool, args.ContainerID))
+	logger.Printf("cmdDel end with err: %v", alctr.Release(pool, nil, args.ContainerID))
 	return nil
 }

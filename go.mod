@@ -5,7 +5,6 @@ go 1.13
 require (
 	github.com/containernetworking/cni v0.7.1
 	github.com/containernetworking/plugins v0.8.5
-	github.com/deckarep/golang-set v1.7.1
 	github.com/go-logr/logr v0.1.0
 	github.com/go-openapi/runtime v0.19.14
 	github.com/go-openapi/strfmt v0.19.5

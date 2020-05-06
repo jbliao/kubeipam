@@ -8,7 +8,7 @@ import (
 
 	runtimeclient "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"github.com/jbliao/kubeipam/api/v1alpha1"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 	"github.com/netbox-community/go-netbox/netbox"
 	"github.com/netbox-community/go-netbox/netbox/client"
 	"github.com/netbox-community/go-netbox/netbox/client/ipam"
@@ -24,9 +24,10 @@ type NetboxDriver struct {
 
 // NetboxDriverConfig contains the connection info to a netbox service
 type NetboxDriverConfig struct {
-	Host   string `json:"host"`
-	APIKey string `json:"apiKey"`
-	Debug  bool   `json:"debug"`
+	Host    string `json:"host"`
+	APIKey  string `json:"apiKey"`
+	Debug   bool   `json:"debug"`
+	PoolKey string `json:"poolKey"`
 }
 
 // NewNetboxDriver construct a NetboxDriver instance with config
@@ -56,9 +57,9 @@ func NewNetboxDriver(rawConfig string, logger *log.Logger) (*NetboxDriver, error
 	return ret, nil
 }
 
-// RangeToPoolName convert ippool's range to driver's pool name
+// NetworkToPoolName convert ippool's network to driver's pool name
 // In Netbox they are the same value. So here just check the range fit cidr format
-func (d *NetboxDriver) RangeToPoolName(rng string) (string, error) {
+func (d *NetboxDriver) NetworkToPoolName(rng string) (string, error) {
 	_, _, err := net.ParseCIDR(rng)
 	if err != nil {
 		d.logger.Println(err)
@@ -67,7 +68,7 @@ func (d *NetboxDriver) RangeToPoolName(rng string) (string, error) {
 	return rng, nil
 }
 
-func (d *NetboxDriver) getAllocatedList(poolName string) ([]*models.IPAddress, error) {
+func (d *NetboxDriver) getAddresses(poolName string) ([]*models.IPAddress, error) {
 	response, err := d.Client.Ipam.IpamIPAddressesList(
 		ipam.NewIpamIPAddressesListParams().
 			WithParent(&poolName), nil)
@@ -78,74 +79,80 @@ func (d *NetboxDriver) getAllocatedList(poolName string) ([]*models.IPAddress, e
 	return response.Payload.Results, nil
 }
 
-// GetAllocatedList get allocated ip in netbox
-func (d *NetboxDriver) GetAllocatedList(poolName string) ([]string, error) {
-	list, err := d.getAllocatedList(poolName)
+// GetAddresses get allocated ip in netbox
+func (d *NetboxDriver) GetAddresses(poolName string) ([]*ipaddr.IPAddress, error) {
+	list, err := d.getAddresses(poolName)
 	if err != nil {
 		return nil, err
 	}
 
-	var ret []string
+	var ret []*ipaddr.IPAddress
 	for _, ip := range list {
-		ret = append(ret, *ip.Address)
+		for _, tag := range ip.Tags {
+			if tag == "k8s" {
+				netip, _, err := net.ParseCIDR(*ip.Address)
+				if err != nil {
+					d.logger.Println(err)
+					return nil, err
+				}
+				ipa := ipaddr.NewIPAddress(netip)
+				ipa.Meta["tags"] = ip.Tags
+				ipa.Meta["id"] = ip.ID
+				ipa.Meta["origin"] = ip.Address
+				ret = append(ret, ipa)
+				break
+			}
+		}
 	}
 
 	return ret, nil
 }
 
-// CreateAllocated create an ipaddress object in netbox
-func (d *NetboxDriver) CreateAllocated(poolName string, alc *v1alpha1.IPAllocation) error {
+// MarkAddressAllocated add "k8s-allocated" tag of netbox ipaddress resource
+func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error {
 
-	// Do ip address in range check
-	ip := net.ParseIP(alc.Address)
-	if ip == nil {
-		err := fmt.Errorf("Cannot parse address to ip in allocations")
-		d.logger.Println(err)
-		return err
-	}
 	_, pool, _ := net.ParseCIDR(poolName)
-	if !pool.Contains(ip) {
-		err := fmt.Errorf("IPAddress %s is not in range %s", alc, poolName)
+	if !pool.Contains(addr.IP) {
+		err := fmt.Errorf("IPAddress %s is not in range %s", addr.IP, poolName)
 		d.logger.Println(err)
 		return err
 	}
 
-	addr := (&net.IPNet{IP: ip, Mask: pool.Mask}).String()
 	data := &models.WritableIPAddress{
-		Address: &addr,
-		Tags:    []string{},
+		ID:      addr.Meta["id"].(int64),
+		Address: addr.Meta["origin"].(*string),
+		Tags:    append(addr.Meta["tags"].([]string), "k8s-allocated"),
 	}
-	response, err := d.Client.Ipam.IpamIPAddressesCreate(
-		ipam.NewIpamIPAddressesCreateParams().WithData(data),
+	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithID(data.ID).WithData(data),
 		nil,
 	)
 	d.logger.Printf("Netbox create ipaddress with response: %v -- err: %v", response, err)
 	return err
 }
 
-// DeleteAllocated delete an ipaddress object in netbox
-func (d *NetboxDriver) DeleteAllocated(poolName string, address string) error {
-	iplist, err := d.getAllocatedList(poolName)
-	if err != nil {
-		return err
-	}
+// MarkAddressReleased remove "k8s-allocated" tag of netbox ipaddress resource
+func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error {
 
-	var id *int64 = nil
-	for _, ipaddr := range iplist {
-		if address == *ipaddr.Address {
-			id = &ipaddr.ID
+	tags := addr.Meta["tags"].([]string)
+	for idx, tag := range tags {
+		if tag == "k8s-allocated" {
+			tags = append(tags[:idx], tags[idx+1:]...)
+			break
 		}
 	}
 
-	if id == nil {
-		return nil
+	data := models.WritableIPAddress{
+		ID:      addr.Meta["id"].(int64),
+		Tags:    tags,
+		Address: addr.Meta["origin"].(*string),
 	}
 
-	response, err := d.Client.Ipam.IpamIPAddressesDelete(
-		ipam.NewIpamIPAddressesDeleteParams().WithID(*id),
+	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithID(data.ID).WithData(&data),
 		nil,
 	)
-	d.logger.Printf("Netbox delete ipaddress with response %v -- err: %v", response, err)
+	d.logger.Printf("Netbox update ipaddress with response %v -- err: %v", response, err)
 
 	return err
 }

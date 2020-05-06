@@ -1,72 +1,75 @@
 package driver
 
 import (
+	"fmt"
 	"log"
 	"net"
 
-	mapset "github.com/deckarep/golang-set"
 	"github.com/jbliao/kubeipam/api/v1alpha1"
+	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
 
 // Driver for ipam syncing
 type Driver interface {
-	// RangeToPoolName convert ippool's range to driver's pool name
-	RangeToPoolName(r string) (string, error)
+	// NetworkToPoolName convert ippool's network to driver's pool name
+	NetworkToPoolName(network string) (string, error)
 
-	// GetAllocatedList ...
-	GetAllocatedList(poolName string) ([]string, error)
+	// GetAddresses get all address of this pool
+	GetAddresses(poolName string) ([]*ipaddr.IPAddress, error)
 
-	// EnsureAllocated ensures that allocation is mark allocated in the ipam
-	CreateAllocated(poolName string, alc *v1alpha1.IPAllocation) error
+	// MarkAddressAllocated ensures that allocation is mark allocated in the ipam
+	MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error
 
-	// EnsureUnAllocated do the reverse
-	DeleteAllocated(poolName string, address string) error
+	// MarkAddressReleased do the reverse
+	MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error
 }
 
-// Sync sync the allocations in spec with the pool identified by spec.Range
+// Sync sync the allocations in spec with the pool identified by spec.Network
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
-	poolName, err := d.RangeToPoolName(spec.Range)
-	if err != nil {
-		return err
-	}
-	alctedlst, err := d.GetAllocatedList(poolName)
+
+	poolName, err := d.NetworkToPoolName(spec.Network)
 	if err != nil {
 		return err
 	}
 
-	// alctedset is the address set read from driver
-	alctedset := mapset.NewSet()
-	for _, alcted := range alctedlst {
-		ip, _, err := net.ParseCIDR(alcted)
-		if err != nil {
-			logger.Println(err)
-			return err
-		}
-		logger.Printf("alctedset add \"%v\"", ip.String())
-		alctedset.Add(ip.String())
+	ipamAddrLst, err := d.GetAddresses(poolName)
+	if err != nil {
+		return err
 	}
 
-	// alcionset is the address set read from kubernetes
-	alcionset := mapset.NewSet()
-	for _, alction := range spec.Allocations {
-		alcionset.Add(alction.Address)
-		logger.Printf("alcionset add \"%v\"", alction.Address)
-		if !alctedset.Contains(alction.Address) {
-			if err := d.CreateAllocated(poolName, &alction); err != nil {
-				return err
+	// Sync addresses
+	// Every addresses in driver is force sync to ippool now.
+	logger.Println("Syncing addresses")
+	spec.Addresses = []string{}
+	for _, ipamAddr := range ipamAddrLst {
+		spec.Addresses = append(spec.Addresses, ipamAddr.String())
+	}
+
+	// Sync allocations
+	// Every allocations in ippool is force sync to driver now.
+	logger.Println("Syncing allocations")
+	for _, ipamAddr := range ipamAddrLst {
+		var toRelease bool = true
+		for _, alction := range spec.Allocations {
+			ip := net.ParseIP(alction.Address)
+			if ip == nil {
+				return fmt.Errorf("sync failed %v", spec.Addresses)
+			}
+			if ipamAddr.Equal(ip) {
+				toRelease = false
+				break
 			}
 		}
-	}
-
-	for _, alcted := range alctedlst {
-		ip, _, err := net.ParseCIDR(alcted)
-		if err != nil {
-			logger.Println(err)
-			return err
+		var err error
+		if toRelease {
+			logger.Println("Releasing ", ipamAddr)
+			err = d.MarkAddressReleased(poolName, ipamAddr)
+		} else {
+			logger.Println("Allocating ", ipamAddr)
+			err = d.MarkAddressAllocated(poolName, ipamAddr)
 		}
-		if !alcionset.Contains(ip.String()) {
-			logger.Printf("Deleting %v", alcted)
-			d.DeleteAllocated(poolName, alcted)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

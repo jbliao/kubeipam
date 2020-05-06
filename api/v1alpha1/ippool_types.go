@@ -28,12 +28,20 @@ type IPPoolSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Range is a RFC 4632/4291-style string that represents an IP address and prefix length in CIDR notation
-	Range string `json:"range"`
+	// Some field should be replaced with other [un]marshalable type after
+	// this issue: https://github.com/kubernetes-sigs/controller-tools/issues/391
+	// has been resolved
+
+	// Network is a RFC 4632/4291-style string that represents an IP address and prefix length in CIDR notation
+	Network string `json:"network"`
 
 	// Allocations is the set of allocated IPs for the given range. Its` indices are a direct mapping to the
 	// IP with the same index/offset for the pool's range.
+	// +kubebuilder:validation:Optional
 	Allocations []IPAllocation `json:"allocations"`
+
+	// Addresses is the set of allocable ip address
+	Addresses []string `json:"addresses"`
 
 	// Type defined type of the external IPAM service to this IPPool
 	Type string `json:"type"`
