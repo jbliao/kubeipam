@@ -125,7 +125,7 @@ func (p *KubeIPAMPool) deleteAllocationWithIndex(idx int) error {
 }
 
 // MarkAddressReleased remove an allocation indicated by ip, and call updateWithCache()
-func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, usedBy string) error {
+func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, containerID string) error {
 	if err := p.ensureCache(); err != nil {
 		return err
 	}
@@ -134,11 +134,11 @@ func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, usedBy string
 		if addr != nil && addr.Equal(net.ParseIP(alc.Address)) {
 			return p.deleteAllocationWithIndex(idx)
 		}
-		if alc.ContainerID == usedBy {
+		if alc.ContainerID == containerID {
 			return p.deleteAllocationWithIndex(idx)
 		}
 	}
-	err := fmt.Errorf("address %s or usedBy %s not found", addr.String(), usedBy)
+	err := fmt.Errorf("address %s or containerID %s not found", addr, containerID)
 	p.logger.Println(err)
 	return err
 }
