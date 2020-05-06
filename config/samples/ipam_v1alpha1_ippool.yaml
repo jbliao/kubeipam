@@ -6,7 +6,7 @@ spec:
   type: "netbox"
   addresses: []
   allocations: []
-  network: "10.10.10.0/24"
+  network: "10.10.0.0/24"
   rawConfig: |
     {
       "host": "10.152.183.164",

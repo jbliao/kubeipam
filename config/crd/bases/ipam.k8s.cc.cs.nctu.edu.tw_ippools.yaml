@@ -34,6 +34,11 @@ spec:
         spec:
           description: IPPoolSpec defines the desired state of IPPool
           properties:
+            addresses:
+              description: Addresses is the set of allocable ip address
+              items:
+                type: string
+              type: array
             allocations:
               description: Allocations is the set of allocated IPs for the given range.
                 Its` indices are a direct mapping to the IP with the same index/offset
@@ -64,6 +69,7 @@ spec:
                 IPPool
               type: string
           required:
+          - addresses
           - network
           - rawConfig
           - type

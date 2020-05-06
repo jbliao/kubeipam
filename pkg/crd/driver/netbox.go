@@ -90,9 +90,15 @@ func (d *NetboxDriver) GetAddresses(poolName string) ([]*ipaddr.IPAddress, error
 	for _, ip := range list {
 		for _, tag := range ip.Tags {
 			if tag == "k8s" {
-				ipa := ipaddr.NewIPAddress(net.ParseIP(*ip.Address))
+				netip, _, err := net.ParseCIDR(*ip.Address)
+				if err != nil {
+					d.logger.Println(err)
+					return nil, err
+				}
+				ipa := ipaddr.NewIPAddress(netip)
 				ipa.Meta["tags"] = ip.Tags
 				ipa.Meta["id"] = ip.ID
+				ipa.Meta["origin"] = ip.Address
 				ret = append(ret, ipa)
 				break
 			}
@@ -113,11 +119,12 @@ func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddr
 	}
 
 	data := &models.WritableIPAddress{
-		ID:   addr.Meta["id"].(int64),
-		Tags: append(addr.Meta["tags"].([]string), "k8s-allocated"),
+		ID:      addr.Meta["id"].(int64),
+		Address: addr.Meta["origin"].(*string),
+		Tags:    append(addr.Meta["tags"].([]string), "k8s-allocated"),
 	}
 	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
-		ipam.NewIpamIPAddressesPartialUpdateParams().WithData(data),
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithID(data.ID).WithData(data),
 		nil,
 	)
 	d.logger.Printf("Netbox create ipaddress with response: %v -- err: %v", response, err)
@@ -126,38 +133,23 @@ func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddr
 
 // MarkAddressReleased remove "k8s-allocated" tag of netbox ipaddress resource
 func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error {
-	iplist, err := d.getAddresses(poolName)
-	if err != nil {
-		return err
-	}
 
-	var obj *models.IPAddress = nil
-	for _, ip := range iplist {
-		if addr.String() == *ip.Address {
-			obj = ip
-		}
-	}
-
-	if obj == nil {
-		err := fmt.Errorf("object not found")
-		d.logger.Println(err)
-		return err
-	}
-
-	for idx, tag := range obj.Tags {
+	tags := addr.Meta["tags"].([]string)
+	for idx, tag := range tags {
 		if tag == "k8s-allocated" {
-			obj.Tags = append(obj.Tags[:idx], obj.Tags[idx+1:]...)
+			tags = append(tags[:idx], tags[idx+1:]...)
 			break
 		}
 	}
 
 	data := models.WritableIPAddress{
-		ID:   obj.ID,
-		Tags: obj.Tags,
+		ID:      addr.Meta["id"].(int64),
+		Tags:    tags,
+		Address: addr.Meta["origin"].(*string),
 	}
 
 	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
-		ipam.NewIpamIPAddressesPartialUpdateParams().WithData(&data),
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithID(data.ID).WithData(&data),
 		nil,
 	)
 	d.logger.Printf("Netbox update ipaddress with response %v -- err: %v", response, err)

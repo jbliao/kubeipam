@@ -12,9 +12,10 @@ type IPAddress struct {
 
 // NewIPAddress ..
 func NewIPAddress(raw net.IP) *IPAddress {
-	ipa := IPAddress{}
+	ipa := &IPAddress{}
+	ipa.Meta = make(map[string]interface{})
 	ipa.IP = append(ipa.IP, raw...)
-	return &ipa
+	return ipa
 }
 
 func (ipa IPAddress) copy() *IPAddress {

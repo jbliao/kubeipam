@@ -101,7 +101,7 @@ func (p *KubeIPAMPool) GetAddresses() ([]*ipaddr.IPAddress, error) {
 // MarkAddressAllocated append an IPAllocation object to allocations list. and call
 // updateWithCache()
 func (p *KubeIPAMPool) MarkAddressAllocated(addr *ipaddr.IPAddress, usedBy string) error {
-	if !addr.Meta["allocated"].(bool) {
+	if _, allocated := addr.Meta["allocated"]; allocated {
 		err := fmt.Errorf("address allocated")
 		p.logger.Println(err)
 		return err
@@ -115,20 +115,27 @@ func (p *KubeIPAMPool) MarkAddressAllocated(addr *ipaddr.IPAddress, usedBy strin
 	return p.updateWithCache()
 }
 
+func (p *KubeIPAMPool) deleteAllocationWithIndex(idx int) error {
+	p.logger.Printf("Found allocation to release: %v", p.cache.Spec.Allocations[idx])
+	p.cache.Spec.Allocations = append(
+		p.cache.Spec.Allocations[:idx],
+		p.cache.Spec.Allocations[idx+1:]...,
+	)
+	return p.updateWithCache()
+}
+
 // MarkAddressReleased remove an allocation indicated by ip, and call updateWithCache()
 func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, usedBy string) error {
 	if err := p.ensureCache(); err != nil {
 		return err
 	}
+	p.logger.Println("Loop to find allocation to release")
 	for idx, alc := range p.cache.Spec.Allocations {
-		if addr.Equal(net.ParseIP(alc.Address)) || alc.ContainerID == usedBy {
-			//remove
-			p.logger.Printf("Found allocation to release: %v", alc)
-			p.cache.Spec.Allocations = append(
-				p.cache.Spec.Allocations[:idx],
-				p.cache.Spec.Allocations[idx+1:]...,
-			)
-			return p.updateWithCache()
+		if addr != nil && addr.Equal(net.ParseIP(alc.Address)) {
+			return p.deleteAllocationWithIndex(idx)
+		}
+		if alc.ContainerID == usedBy {
+			return p.deleteAllocationWithIndex(idx)
 		}
 	}
 	err := fmt.Errorf("address %s or usedBy %s not found", addr.String(), usedBy)

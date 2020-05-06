@@ -27,9 +27,10 @@ func (a *BasicAllocator) Allocate(pool cni.Pool, containerID string) (*ipaddr.IP
 	if err != nil {
 		return nil, err
 	}
-
+	a.logger.Println("Loop to find allocable address")
 	for _, ipAddr := range ipAddrLst {
-		if !ipAddr.Meta["allocated"].(bool) {
+		if _, allocated := ipAddr.Meta["allocated"]; !allocated {
+			a.logger.Println("Found allocable address", ipAddr)
 			if err := pool.MarkAddressAllocated(ipAddr, containerID); err != nil {
 				return nil, err
 			}
@@ -43,5 +44,6 @@ func (a *BasicAllocator) Allocate(pool cni.Pool, containerID string) (*ipaddr.IP
 
 // Release TODO
 func (a *BasicAllocator) Release(pool cni.Pool, addr *ipaddr.IPAddress, containerID string) error {
+	a.logger.Println("Releasing address with ip&containerID", addr, containerID)
 	return pool.MarkAddressReleased(addr, containerID)
 }

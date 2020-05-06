@@ -69,6 +69,11 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		goto REQUEUE_N_ERROR
 	}
 
+	if err := r.Update(ctx, pool); err != nil {
+		logger.Error(err, "")
+		goto REQUEUE_N_ERROR
+	}
+
 	return ctrl.Result{}, nil
 
 REQUEUE_N_ERROR:

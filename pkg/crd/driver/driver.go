@@ -39,6 +39,7 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
 	// Sync addresses
 	// Every addresses in driver is force sync to ippool now.
+	logger.Println("Syncing addresses")
 	spec.Addresses = []string{}
 	for _, ipamAddr := range ipamAddrLst {
 		spec.Addresses = append(spec.Addresses, ipamAddr.String())
@@ -46,22 +47,29 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
 	// Sync allocations
 	// Every allocations in ippool is force sync to driver now.
+	logger.Println("Syncing allocations")
 	for _, ipamAddr := range ipamAddrLst {
 		var toRelease bool = true
-		for _, poolAddr := range spec.Addresses {
-			ip := net.ParseIP(poolAddr)
+		for _, alction := range spec.Allocations {
+			ip := net.ParseIP(alction.Address)
 			if ip == nil {
-				return fmt.Errorf("sync failed")
+				return fmt.Errorf("sync failed %v", spec.Addresses)
 			}
 			if ipamAddr.Equal(ip) {
 				toRelease = false
 				break
 			}
 		}
+		var err error
 		if toRelease {
-			d.MarkAddressReleased(poolName, ipamAddr)
+			logger.Println("Releasing ", ipamAddr)
+			err = d.MarkAddressReleased(poolName, ipamAddr)
 		} else {
-			d.MarkAddressAllocated(poolName, ipamAddr)
+			logger.Println("Allocating ", ipamAddr)
+			err = d.MarkAddressAllocated(poolName, ipamAddr)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
