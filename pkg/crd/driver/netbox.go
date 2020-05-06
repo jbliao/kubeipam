@@ -88,9 +88,15 @@ func (d *NetboxDriver) GetAllocatedList(poolName string) ([]*ipaddr.IPAddress, e
 
 	var ret []*ipaddr.IPAddress
 	for _, ip := range list {
-		ipa := ipaddr.NewIPAddress(net.ParseIP(*ip.Address))
-		ipa.Meta["tags"] = ip.Tags
-		ret = append(ret, ipa)
+		for _, tag := range ip.Tags {
+			if tag == "k8s" {
+				ipa := ipaddr.NewIPAddress(net.ParseIP(*ip.Address))
+				ipa.Meta["tags"] = ip.Tags
+				ipa.Meta["id"] = ip.ID
+				ret = append(ret, ipa)
+				break
+			}
+		}
 	}
 
 	return ret, nil
@@ -106,13 +112,12 @@ func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddr
 		return err
 	}
 
-	ipaWithPrefix := (&net.IPNet{IP: addr.IP, Mask: pool.Mask}).String()
 	data := &models.WritableIPAddress{
-		Address: &ipaWithPrefix,
-		Tags:    addr.Meta["tags"].([]string),
+		ID:   addr.Meta["id"].(int64),
+		Tags: append(addr.Meta["tags"].([]string), "k8s-allocated"),
 	}
-	response, err := d.Client.Ipam.IpamIPAddressesCreate(
-		ipam.NewIpamIPAddressesCreateParams().WithData(data),
+	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithData(data),
 		nil,
 	)
 	d.logger.Printf("Netbox create ipaddress with response: %v -- err: %v", response, err)
@@ -126,22 +131,36 @@ func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddre
 		return err
 	}
 
-	var id *int64 = nil
+	var obj *models.IPAddress = nil
 	for _, ip := range iplist {
 		if addr.String() == *ip.Address {
-			id = &ip.ID
+			obj = ip
 		}
 	}
 
-	if id == nil {
-		return nil
+	if obj == nil {
+		err := fmt.Errorf("object not found")
+		d.logger.Println(err)
+		return err
 	}
 
-	response, err := d.Client.Ipam.IpamIPAddressesDelete(
-		ipam.NewIpamIPAddressesDeleteParams().WithID(*id),
+	for idx, tag := range obj.Tags {
+		if tag == "k8s-allocated" {
+			obj.Tags = append(obj.Tags[:idx], obj.Tags[idx+1:]...)
+			break
+		}
+	}
+
+	data := models.WritableIPAddress{
+		ID:   obj.ID,
+		Tags: obj.Tags,
+	}
+
+	response, err := d.Client.Ipam.IpamIPAddressesPartialUpdate(
+		ipam.NewIpamIPAddressesPartialUpdateParams().WithData(&data),
 		nil,
 	)
-	d.logger.Printf("Netbox delete ipaddress with response %v -- err: %v", response, err)
+	d.logger.Printf("Netbox update ipaddress with response %v -- err: %v", response, err)
 
 	return err
 }
