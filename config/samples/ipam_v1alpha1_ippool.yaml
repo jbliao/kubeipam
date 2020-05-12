@@ -9,7 +9,7 @@ spec:
   network: "10.10.0.0/24"
   rawConfig: |
     {
-      "host": "10.152.183.164",
-      "apiKey": "24a7bb1b443e4f7c041c3f8e0405b2f9a26e3934",
+      "host": "10.103.83.184",
+      "apiKey": "0123456789abcdef0123456789abcdef01234567",
       "debug": true
     }

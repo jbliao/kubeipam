@@ -22,6 +22,10 @@ type Driver interface {
 
 	// MarkAddressReleased do the reverse
 	MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error
+
+	CreateAddress(poolName string, count int) error
+
+	DeleteAddress(poolName string, addrs *ipaddr.IPAddress) error
 }
 
 // Sync sync the allocations in spec with the pool identified by spec.Network
@@ -32,9 +36,43 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 		return err
 	}
 
+	specAddressListSize := len(spec.Addresses)
+	specAllocationListSize := len(spec.Allocations)
+	sizeDiff := specAddressListSize - specAllocationListSize - 1
+
+	if sizeDiff < 0 {
+		// need more address
+		logger.Println("need more address. creating")
+		if err := d.CreateAddress(poolName, -sizeDiff); err != nil {
+			return err
+		}
+	}
+
 	ipamAddrLst, err := d.GetAddresses(poolName)
 	if err != nil {
 		return err
+	}
+
+	if sizeDiff > 0 {
+		logger.Println("too many address. deleting...")
+		for idx, ipamAddr := range ipamAddrLst {
+			allocated := false
+			for _, tag := range ipamAddr.Meta["tags"].([]string) {
+				if tag == "k8s-allocated" {
+					allocated = true
+				}
+			}
+			if !allocated {
+				if err = d.DeleteAddress(poolName, ipamAddr); err != nil {
+					return err
+				}
+				ipamAddrLst = append(ipamAddrLst[:idx], ipamAddrLst[idx+1:]...)
+				sizeDiff--
+			}
+			if sizeDiff == 0 {
+				break
+			}
+		}
 	}
 
 	// Sync addresses

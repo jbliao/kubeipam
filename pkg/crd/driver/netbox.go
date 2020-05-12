@@ -156,3 +156,60 @@ func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddre
 
 	return err
 }
+
+// CreateAddress create addresses on ipam system and claim those will be used
+// by k8s
+func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
+
+	// count need greater than zero
+	// TODO: consider this a warning, not error.
+	if count < 0 {
+		err = fmt.Errorf("count less than 0")
+		d.logger.Println(err)
+		return
+	}
+
+	// get id of the prefix that indecated by poolName(a prefix string)
+	response, err := d.Client.Ipam.IpamPrefixesList(
+		ipam.NewIpamPrefixesListParams().WithPrefix(&poolName), nil)
+	if err != nil {
+		d.logger.Println(err)
+		return
+	}
+
+	if *response.Payload.Count != 1 {
+		err = fmt.Errorf("cannot find or decide prefix %s: %v, %v",
+			poolName,
+			response.Payload,
+			err)
+		d.logger.Println(err)
+		return
+	}
+
+	// create addresses
+	prefixID := response.Payload.Results[0].ID
+	for ; count > 0; count-- {
+		_, err = d.Client.Ipam.IpamPrefixesAvailableIpsCreate(
+			ipam.NewIpamPrefixesAvailableIpsCreateParams().
+				WithID(prefixID).
+				// data should be a WritableIPAddress object. this may be a bug of netbox
+				WithData(&models.WritablePrefix{
+					Tags: []string{"k8s"},
+				}),
+			nil,
+		)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+// DeleteAddress delete IPAddresses from netbox
+func (d *NetboxDriver) DeleteAddress(poolName string, addr *ipaddr.IPAddress) (err error) {
+	_, err = d.Client.Ipam.IpamIPAddressesDelete(
+		ipam.NewIpamIPAddressesDeleteParams().WithID(addr.Meta["id"].(int64)),
+		nil,
+	)
+	return
+}
