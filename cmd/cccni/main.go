@@ -129,6 +129,11 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	logger.Printf("cmdDel end with err: %v", alctr.Release(pool, nil, args.ContainerID))
-	return nil
+	err = alctr.Release(pool, nil, args.ContainerID)
+	if err != nil {
+		logger.Printf("release with err: %v", err)
+	}
+
+	logger.Printf("cmdDel end")
+	return err
 }

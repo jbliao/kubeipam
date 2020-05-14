@@ -138,7 +138,6 @@ func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, containerID s
 			return p.deleteAllocationWithIndex(idx)
 		}
 	}
-	err := fmt.Errorf("address %s or containerID %s not found", addr, containerID)
-	p.logger.Println(err)
-	return err
+	p.logger.Printf("address %s or containerID %s not found", addr, containerID)
+	return nil
 }
