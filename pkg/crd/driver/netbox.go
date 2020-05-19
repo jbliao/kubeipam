@@ -1,13 +1,11 @@
 package driver
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 
 	runtimeclient "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/strfmt"
 	"github.com/jbliao/kubeipam/pkg/ipaddr"
 	"github.com/netbox-community/go-netbox/netbox"
 	"github.com/netbox-community/go-netbox/netbox/client"
@@ -15,63 +13,55 @@ import (
 	"github.com/netbox-community/go-netbox/netbox/models"
 )
 
+// TODO: replace the use of IPAddress.Meta
+
 // NetboxDriver impl the Driver interface with netbox support
 type NetboxDriver struct {
-	Config NetboxDriverConfig
 	Client *client.NetBox
 	logger *log.Logger
+	prefix string
 }
 
 // NetboxDriverConfig contains the connection info to a netbox service
 type NetboxDriverConfig struct {
-	Host    string `json:"host"`
-	APIKey  string `json:"apiKey"`
-	Debug   bool   `json:"debug"`
-	PoolKey string `json:"poolKey"`
+	Host   string `json:"host"`
+	APIKey string `json:"apiKey"`
+	Debug  bool   `json:"debug"`
+	Prefix string `json:"prefix"`
 }
 
 // NewNetboxDriver construct a NetboxDriver instance with config
-func NewNetboxDriver(rawConfig string, logger *log.Logger) (*NetboxDriver, error) {
-	ret := &NetboxDriver{}
+func NewNetboxDriver(config *NetboxDriverConfig, logger *log.Logger) (nd *NetboxDriver, err error) {
 	if logger == nil {
 		return nil, fmt.Errorf("nil logger in NewNetboxDriver")
 	}
-	ret.logger = logger
-	if err := json.Unmarshal([]byte(rawConfig), &ret.Config); err != nil {
-		return nil, err
+
+	if config.Prefix == "" {
+		err = fmt.Errorf("empty prefix")
+		return
+	} else if _, _, err = net.ParseCIDR(config.Prefix); err != nil {
+		// Prefix needs to satisfy cidr format
+		logger.Println(err)
+		return
 	}
-	if ret.Config.Debug {
+
+	nd = &NetboxDriver{
+		logger: logger,
+		prefix: config.Prefix,
+	}
+
+	nd.Client = netbox.NewNetboxWithAPIKey(config.Host, config.APIKey)
+	if config.Debug {
 		logger.Println("Handle netbox in debug mode.")
-		t := runtimeclient.New(ret.Config.Host, client.DefaultBasePath, client.DefaultSchemes)
-		t.SetDebug(true)
-		t.DefaultAuthentication =
-			runtimeclient.APIKeyAuth(
-				"Authorization",
-				"header",
-				fmt.Sprintf("Token %v", ret.Config.APIKey),
-			)
-		ret.Client = client.New(t, strfmt.Default)
-	} else {
-		ret.Client = netbox.NewNetboxWithAPIKey(ret.Config.Host, ret.Config.APIKey)
+		nd.Client.Transport.(*runtimeclient.Runtime).SetDebug(true)
 	}
-	return ret, nil
+	return
 }
 
-// NetworkToPoolName convert ippool's network to driver's pool name
-// In Netbox they are the same value. So here just check the range fit cidr format
-func (d *NetboxDriver) NetworkToPoolName(rng string) (string, error) {
-	_, _, err := net.ParseCIDR(rng)
-	if err != nil {
-		d.logger.Println(err)
-		return "", err
-	}
-	return rng, nil
-}
-
-func (d *NetboxDriver) getAddresses(poolName string) ([]*models.IPAddress, error) {
+func (d *NetboxDriver) getAddresses() ([]*models.IPAddress, error) {
 	response, err := d.Client.Ipam.IpamIPAddressesList(
 		ipam.NewIpamIPAddressesListParams().
-			WithParent(&poolName), nil)
+			WithParent(&d.prefix), nil)
 	if err != nil {
 		d.logger.Println(err)
 		return nil, err
@@ -79,9 +69,9 @@ func (d *NetboxDriver) getAddresses(poolName string) ([]*models.IPAddress, error
 	return response.Payload.Results, nil
 }
 
-// GetAddresses get allocated ip in netbox
-func (d *NetboxDriver) GetAddresses(poolName string) ([]*ipaddr.IPAddress, error) {
-	list, err := d.getAddresses(poolName)
+// GetAddresses get ip in netbox which allocated by k8s (has tag "k8s")
+func (d *NetboxDriver) GetAddresses() ([]*ipaddr.IPAddress, error) {
+	list, err := d.getAddresses()
 	if err != nil {
 		return nil, err
 	}
@@ -109,11 +99,11 @@ func (d *NetboxDriver) GetAddresses(poolName string) ([]*ipaddr.IPAddress, error
 }
 
 // MarkAddressAllocated add "k8s-allocated" tag of netbox ipaddress resource
-func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error {
+func (d *NetboxDriver) MarkAddressAllocated(addr *ipaddr.IPAddress) error {
 
-	_, pool, _ := net.ParseCIDR(poolName)
+	_, pool, _ := net.ParseCIDR(d.prefix)
 	if !pool.Contains(addr.IP) {
-		err := fmt.Errorf("IPAddress %s is not in range %s", addr.IP, poolName)
+		err := fmt.Errorf("IPAddress %s is not in range %s", addr.IP, d.prefix)
 		d.logger.Println(err)
 		return err
 	}
@@ -132,7 +122,7 @@ func (d *NetboxDriver) MarkAddressAllocated(poolName string, addr *ipaddr.IPAddr
 }
 
 // MarkAddressReleased remove "k8s-allocated" tag of netbox ipaddress resource
-func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error {
+func (d *NetboxDriver) MarkAddressReleased(addr *ipaddr.IPAddress) error {
 
 	tags := addr.Meta["tags"].([]string)
 	for idx, tag := range tags {
@@ -159,7 +149,7 @@ func (d *NetboxDriver) MarkAddressReleased(poolName string, addr *ipaddr.IPAddre
 
 // CreateAddress create addresses on ipam system and claim those will be used
 // by k8s
-func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
+func (d *NetboxDriver) CreateAddress(count int) (err error) {
 
 	// count need greater than zero
 	// TODO: consider this a warning, not error.
@@ -171,7 +161,7 @@ func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
 
 	// get id of the prefix that indecated by poolName(a prefix string)
 	response, err := d.Client.Ipam.IpamPrefixesList(
-		ipam.NewIpamPrefixesListParams().WithPrefix(&poolName), nil)
+		ipam.NewIpamPrefixesListParams().WithPrefix(&d.prefix), nil)
 	if err != nil {
 		d.logger.Println(err)
 		return
@@ -179,7 +169,7 @@ func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
 
 	if *response.Payload.Count != 1 {
 		err = fmt.Errorf("cannot find or decide prefix %s: %v, %v",
-			poolName,
+			d.prefix,
 			response.Payload,
 			err)
 		d.logger.Println(err)
@@ -189,7 +179,8 @@ func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
 	// create addresses
 	prefixID := response.Payload.Results[0].ID
 	for ; count > 0; count-- {
-		_, err = d.Client.Ipam.IpamPrefixesAvailableIpsCreate(
+		var createResponse *ipam.IpamPrefixesAvailableIpsCreateCreated
+		createResponse, err = d.Client.Ipam.IpamPrefixesAvailableIpsCreate(
 			ipam.NewIpamPrefixesAvailableIpsCreateParams().
 				WithID(prefixID).
 				// data should be a WritableIPAddress object. this may be a bug of netbox
@@ -198,6 +189,7 @@ func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
 				}),
 			nil,
 		)
+		d.logger.Printf("Netbox create ipaddress with response %v err %v", createResponse, err)
 		if err != nil {
 			return
 		}
@@ -206,10 +198,18 @@ func (d *NetboxDriver) CreateAddress(poolName string, count int) (err error) {
 }
 
 // DeleteAddress delete IPAddresses from netbox
-func (d *NetboxDriver) DeleteAddress(poolName string, addr *ipaddr.IPAddress) (err error) {
-	_, err = d.Client.Ipam.IpamIPAddressesDelete(
-		ipam.NewIpamIPAddressesDeleteParams().WithID(addr.Meta["id"].(int64)),
-		nil,
-	)
+func (d *NetboxDriver) DeleteAddress(addr *ipaddr.IPAddress) (err error) {
+	id, ok := addr.Meta["id"].(int64)
+	if ok {
+		var response *ipam.IpamIPAddressesDeleteNoContent
+		response, err = d.Client.Ipam.IpamIPAddressesDelete(
+			ipam.NewIpamIPAddressesDeleteParams().WithID(id),
+			nil,
+		)
+		d.logger.Printf("Netbox create ipaddress with response %v err %v", response, err)
+	} else {
+		err = fmt.Errorf("id not found in object meta")
+		d.logger.Println(err)
+	}
 	return
 }

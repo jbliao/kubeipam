@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -56,7 +57,11 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	switch tp := pool.Spec.Type; tp {
 	case "netbox":
-		driverObj, err = driver.NewNetboxDriver(pool.Spec.RawConfig, gologger)
+		config := &driver.NetboxDriverConfig{}
+		if err := json.Unmarshal([]byte(pool.Spec.RawConfig), &config); err != nil {
+			goto REQUEUE_N_ERROR
+		}
+		driverObj, err = driver.NewNetboxDriver(config, gologger)
 	default:
 		driverObj, err = nil, fmt.Errorf("Type %s not implemented", tp)
 	}

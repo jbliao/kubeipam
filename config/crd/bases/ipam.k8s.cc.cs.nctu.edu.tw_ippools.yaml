@@ -56,10 +56,6 @@ spec:
                 - id
                 type: object
               type: array
-            network:
-              description: Network is a RFC 4632/4291-style string that represents
-                an IP address and prefix length in CIDR notation
-              type: string
             rawConfig:
               description: RawConfig is the driver specific configuration in raw json
                 format
@@ -70,7 +66,6 @@ spec:
               type: string
           required:
           - addresses
-          - network
           - rawConfig
           - type
           type: object

@@ -41,11 +41,11 @@ func loadNetConf(bytes []byte) (*cni.PluginConf, error) {
 }
 
 func setupLog(logFile string) *log.Logger {
-	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
-		if err == nil {
-			log.SetOutput(f)
-		}
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
+	if err == nil {
+		log.SetOutput(f)
+	} else {
+		log.Printf("Cannot open file \"%s\" to log, fallback to default", logFile)
 	}
 	return log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
 }
