@@ -11,30 +11,22 @@ import (
 
 // Driver for ipam syncing
 type Driver interface {
-	// NetworkToPoolName convert ippool's network to driver's pool name
-	NetworkToPoolName(network string) (string, error)
-
 	// GetAddresses get all address of this pool
-	GetAddresses(poolName string) ([]*ipaddr.IPAddress, error)
+	GetAddresses() ([]*ipaddr.IPAddress, error)
 
 	// MarkAddressAllocated ensures that allocation is mark allocated in the ipam
-	MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error
+	MarkAddressAllocated(addr *ipaddr.IPAddress) error
 
 	// MarkAddressReleased do the reverse
-	MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error
+	MarkAddressReleased(addr *ipaddr.IPAddress) error
 
-	CreateAddress(poolName string, count int) error
+	CreateAddress(count int) error
 
-	DeleteAddress(poolName string, addrs *ipaddr.IPAddress) error
+	DeleteAddress(addrs *ipaddr.IPAddress) error
 }
 
 // Sync sync the allocations in spec with the pool identified by spec.Network
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
-
-	poolName, err := d.NetworkToPoolName(spec.Network)
-	if err != nil {
-		return err
-	}
 
 	specAddressListSize := len(spec.Addresses)
 	specAllocationListSize := len(spec.Allocations)
@@ -43,12 +35,12 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 	if sizeDiff < 0 {
 		// need more address
 		logger.Println("need more address. creating")
-		if err := d.CreateAddress(poolName, -sizeDiff); err != nil {
+		if err := d.CreateAddress(-sizeDiff); err != nil {
 			return err
 		}
 	}
 
-	ipamAddrLst, err := d.GetAddresses(poolName)
+	ipamAddrLst, err := d.GetAddresses()
 	if err != nil {
 		return err
 	}
@@ -63,7 +55,7 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 				}
 			}
 			if !allocated {
-				if err = d.DeleteAddress(poolName, ipamAddr); err != nil {
+				if err = d.DeleteAddress(ipamAddr); err != nil {
 					return err
 				}
 				ipamAddrLst = append(ipamAddrLst[:idx], ipamAddrLst[idx+1:]...)
@@ -101,10 +93,10 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 		var err error
 		if toRelease {
 			logger.Println("Releasing ", ipamAddr)
-			err = d.MarkAddressReleased(poolName, ipamAddr)
+			err = d.MarkAddressReleased(ipamAddr)
 		} else {
 			logger.Println("Allocating ", ipamAddr)
-			err = d.MarkAddressAllocated(poolName, ipamAddr)
+			err = d.MarkAddressAllocated(ipamAddr)
 		}
 		if err != nil {
 			return err
