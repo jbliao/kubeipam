@@ -86,6 +86,26 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	tmp = tmp.To4()
 
+	gw := net.ParseIP(conf.IPAM.Gateway)
+	routes := []*types.Route{{
+		Dst: net.IPNet{
+			IP:   net.IPv4(0, 0, 0, 0),
+			Mask: net.CIDRMask(0, 32),
+		},
+		GW: gw,
+	}}
+
+	for _, rawRoute := range conf.IPAM.Routes {
+		_, ipnet, err := net.ParseCIDR(rawRoute)
+		if err != nil {
+			return err
+		}
+		routes = append(routes, &types.Route{
+			Dst: *ipnet,
+			GW:  gw,
+		})
+	}
+
 	result := &current.Result{
 		IPs: []*current.IPConfig{{
 			Version: "4",
@@ -95,13 +115,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			},
 			Gateway: net.ParseIP(conf.IPAM.Gateway),
 		}},
-		Routes: []*types.Route{{
-			Dst: net.IPNet{
-				IP:   net.IPv4(0, 0, 0, 0),
-				Mask: net.CIDRMask(0, 32),
-			},
-			GW: net.ParseIP(conf.IPAM.Gateway),
-		}},
+		Routes: routes,
 	}
 
 	logger.Printf("cmdAdd end %v", result)
