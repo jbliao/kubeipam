@@ -131,6 +131,7 @@ func (p *KubeIPAMPool) MarkAddressReleased(addr *ipaddr.IPAddress, containerID s
 	}
 	p.logger.Println("Loop to find allocation to release")
 	for idx, alc := range p.cache.Spec.Allocations {
+		// addr may be a nil pointer
 		if addr != nil && addr.Equal(net.ParseIP(alc.Address)) {
 			return p.deleteAllocationWithIndex(idx)
 		}

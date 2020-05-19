@@ -21,7 +21,7 @@ func NewBasicAllocator(logger *log.Logger) (*BasicAllocator, error) {
 	return &BasicAllocator{logger: logger}, nil
 }
 
-// Allocate TODO
+// Allocate find the address in pool.addresses but not in pool.allocations
 func (a *BasicAllocator) Allocate(pool cni.Pool, containerID string) (*ipaddr.IPAddress, error) {
 	ipAddrLst, err := pool.GetAddresses()
 	if err != nil {
@@ -42,7 +42,7 @@ func (a *BasicAllocator) Allocate(pool cni.Pool, containerID string) (*ipaddr.IP
 	return nil, err
 }
 
-// Release TODO
+// Release just call pool.MarkAddressReleased which delete specific address from pool.allocations
 func (a *BasicAllocator) Release(pool cni.Pool, addr *ipaddr.IPAddress, containerID string) error {
 	a.logger.Println("Releasing address with ip&containerID", addr, containerID)
 	return pool.MarkAddressReleased(addr, containerID)
