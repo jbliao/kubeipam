@@ -42,47 +42,48 @@ type IPPoolReconciler struct {
 // +kubebuilder:rbac:groups=ipam.k8s.cc.cs.nctu.edu.tw,resources=ippools/status,verbs=get;update;patch
 
 // Reconcile ...
-func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (res ctrl.Result, err error) {
 	ctx := context.Background()
 	logger := r.Log.WithValues("ippool", req.NamespacedName)
 	gologger := log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
 	// your logic here
+	res = ctrl.Result{Requeue: true}
+	err = nil
 
 	var driverObj driver.Driver
 	pool := &ipamv1alpha1.IPPool{}
-	err := r.Get(ctx, req.NamespacedName, pool)
+	err = r.Get(ctx, req.NamespacedName, pool)
 	if err != nil {
-		goto REQUEUE_N_ERROR
+		return
 	}
 
 	switch tp := pool.Spec.Type; tp {
 	case "netbox":
 		config := &driver.NetboxDriverConfig{}
-		if err := json.Unmarshal([]byte(pool.Spec.RawConfig), &config); err != nil {
-			goto REQUEUE_N_ERROR
+		if err = json.Unmarshal([]byte(pool.Spec.RawConfig), &config); err != nil {
+			return
 		}
 		driverObj, err = driver.NewNetboxDriver(config, gologger)
 	default:
 		driverObj, err = nil, fmt.Errorf("Type %s not implemented", tp)
 	}
 	if err != nil {
-		goto REQUEUE_N_ERROR
+		return
 	}
 
-	if err := driver.Sync(driverObj, &pool.Spec, gologger); err != nil {
+	if err = driver.Sync(driverObj, &pool.Spec, gologger); err != nil {
 		logger.Error(err, "")
-		goto REQUEUE_N_ERROR
+		return
 	}
 
-	if err := r.Update(ctx, pool); err != nil {
+	if err = r.Update(ctx, pool); err != nil {
 		logger.Error(err, "")
-		goto REQUEUE_N_ERROR
+		return
 	}
 
-	return ctrl.Result{}, nil
+	res = ctrl.Result{}
+	return
 
-REQUEUE_N_ERROR:
-	return ctrl.Result{Requeue: true}, err
 }
 
 // SetupWithManager ...
