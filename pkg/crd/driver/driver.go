@@ -6,35 +6,46 @@ import (
 	"net"
 
 	"github.com/jbliao/kubeipam/api/v1alpha1"
-	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
+
+type IpamAddress interface {
+	Equal(net.IP) bool
+	MarkedWith(string) bool
+	String() string
+}
+
+const ReserveAddressCount int = 1
 
 // Driver for ipam syncing
 type Driver interface {
 	// GetAddresses get all address of this pool
-	GetAddresses() ([]*ipaddr.IPAddress, error)
+	GetAddresses() ([]IpamAddress, error)
 
 	// MarkAddressAllocated ensures that allocation is mark allocated in the ipam
-	MarkAddressAllocated(addr *ipaddr.IPAddress) error
+	MarkAddressAllocated(addr IpamAddress) error
 
 	// MarkAddressReleased do the reverse
-	MarkAddressReleased(addr *ipaddr.IPAddress) error
+	MarkAddressReleased(addr IpamAddress) error
 
 	CreateAddress(count int) error
 
-	DeleteAddress(addrs *ipaddr.IPAddress) error
+	DeleteAddress(addrs IpamAddress) error
 }
 
 // Sync sync the allocations in spec with the pool identified by spec.Network
+// TODO: rewrite the logic for more efficiency
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
+	logger.Println("Sync start")
 	specAddressListSize := len(spec.Addresses)
 	specAllocationListSize := len(spec.Allocations)
-	sizeDiff := specAddressListSize - specAllocationListSize - 1
+	sizeDiff := specAddressListSize - specAllocationListSize - ReserveAddressCount
+	logger.Printf("address count=%d, allocation count=%d, reserve count=%d",
+		specAddressListSize, specAllocationListSize, ReserveAddressCount)
 
 	if sizeDiff < 0 {
 		// need more address
-		logger.Println("need more address. creating")
+		logger.Printf("need %d more address. creating...", -sizeDiff)
 		if err := d.CreateAddress(-sizeDiff); err != nil {
 			return err
 		}
@@ -46,30 +57,26 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 	}
 
 	if sizeDiff > 0 {
-		logger.Println("too many address. deleting...")
-		for idx, ipamAddr := range ipamAddrLst {
-			allocated := false
-			for _, tag := range ipamAddr.Meta["tags"].([]string) {
-				if tag == "k8s-allocated" {
-					allocated = true
-				}
-			}
-			if !allocated {
+		logger.Println("too many address. deleting unallocated address...")
+		tmpList := []IpamAddress{}
+		for _, ipamAddr := range ipamAddrLst {
+			if !ipamAddr.MarkedWith("k8s-allocated") {
 				if err = d.DeleteAddress(ipamAddr); err != nil {
 					return err
 				}
-				ipamAddrLst = append(ipamAddrLst[:idx], ipamAddrLst[idx+1:]...)
 				sizeDiff--
 			}
-			if sizeDiff == 0 {
+			tmpList = append(tmpList, ipamAddr)
+			if sizeDiff <= 0 {
 				break
 			}
 		}
+		ipamAddrLst = tmpList
 	}
 
 	// Sync addresses
 	// Every addresses in driver is force sync to ippool now.
-	logger.Println("Syncing addresses")
+	logger.Println("Copying IpamAddr to AddressList")
 	spec.Addresses = []string{}
 	for _, ipamAddr := range ipamAddrLst {
 		spec.Addresses = append(spec.Addresses, ipamAddr.String())
@@ -77,13 +84,15 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
 	// Sync allocations
 	// Every allocations in ippool is force sync to driver now.
-	logger.Println("Syncing allocations")
+	logger.Println("Mark allocation addresses alocated.")
 	for _, ipamAddr := range ipamAddrLst {
 		var toRelease bool = true
 		for _, alction := range spec.Allocations {
 			ip := net.ParseIP(alction.Address)
 			if ip == nil {
-				return fmt.Errorf("sync failed %v", spec.Addresses)
+				err = fmt.Errorf("sync failed: cannot parse address %v", spec.Addresses)
+				logger.Println(err)
+				return err
 			}
 			if ipamAddr.Equal(ip) {
 				toRelease = false
@@ -92,10 +101,8 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 		}
 		var err error
 		if toRelease {
-			logger.Println("Releasing ", ipamAddr)
 			err = d.MarkAddressReleased(ipamAddr)
 		} else {
-			logger.Println("Allocating ", ipamAddr)
 			err = d.MarkAddressAllocated(ipamAddr)
 		}
 		if err != nil {
