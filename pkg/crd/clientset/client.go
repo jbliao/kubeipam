@@ -34,7 +34,7 @@ func NewForConfig(c *rest.Config, logger *log.Logger) (*IPPoolClient, error) {
 		return nil, err
 	}
 
-	return &IPPoolClient{Client: kubeclient}, nil
+	return &IPPoolClient{Client: kubeclient, logger: logger}, nil
 }
 
 func (c *IPPoolClient) GetIPPool(namespace, name string) (*ipamv1alpha1.IPPool, error) {

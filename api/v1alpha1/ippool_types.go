@@ -32,9 +32,6 @@ type IPPoolSpec struct {
 	// this issue: https://github.com/kubernetes-sigs/controller-tools/issues/391
 	// has been resolved
 
-	// Network is a RFC 4632/4291-style string that represents an IP address and prefix length in CIDR notation
-	Network string `json:"network"`
-
 	// Allocations is the set of allocated IPs for the given range. Its` indices are a direct mapping to the
 	// IP with the same index/offset for the pool's range.
 	// +kubebuilder:validation:Optional
@@ -52,8 +49,10 @@ type IPPoolSpec struct {
 
 // IPAllocation represents metadata about the pod/container owner of a specific IP
 type IPAllocation struct {
-	Address     string `json:"address"`
-	ContainerID string `json:"id"`
+	Address      string `json:"address"`
+	ContainerID  string `json:"id"`
+	PodName      string `json:"podName"`
+	PodNamespace string `json:"podNamespace"`
 }
 
 // IPPoolStatus defines the observed state of IPPool

@@ -6,40 +6,90 @@ import (
 	"net"
 
 	"github.com/jbliao/kubeipam/api/v1alpha1"
-	"github.com/jbliao/kubeipam/pkg/ipaddr"
 )
+
+const (
+	// Automated indicate that the address is created by k8s, not admin
+	Automated = "k8s-automated"
+	// Allocated indicate that the address is used by pod
+	Allocated = "k8s-allocated"
+)
+
+// IpamAddress define interface that ip address of driver need impl
+type IpamAddress interface {
+	Equal(net.IP) bool
+	MarkedWith(string) bool
+	String() string
+}
+
+const reserveAddressCount int = 1
 
 // Driver for ipam syncing
 type Driver interface {
-	// NetworkToPoolName convert ippool's network to driver's pool name
-	NetworkToPoolName(network string) (string, error)
-
 	// GetAddresses get all address of this pool
-	GetAddresses(poolName string) ([]*ipaddr.IPAddress, error)
+	GetAddresses() ([]IpamAddress, error)
 
 	// MarkAddressAllocated ensures that allocation is mark allocated in the ipam
-	MarkAddressAllocated(poolName string, addr *ipaddr.IPAddress) error
+	MarkAddressAllocated(addr IpamAddress, des string) error
 
 	// MarkAddressReleased do the reverse
-	MarkAddressReleased(poolName string, addr *ipaddr.IPAddress) error
+	MarkAddressReleased(addr IpamAddress) error
+
+	// CreateAddress create an ip address in ipam system. Need to be thread-safe
+	CreateAddress(count int) error
+
+	// DeleteAddress delete an ip address in ipam system.
+	DeleteAddress(addrs IpamAddress) error
+
+	SetPoolID(string)
+	SetLogger(*log.Logger)
 }
 
 // Sync sync the allocations in spec with the pool identified by spec.Network
+// TODO: rewrite the logic for more efficiency
 func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
-	poolName, err := d.NetworkToPoolName(spec.Network)
+	logger.Println("Sync start")
+	specAddressListSize := len(spec.Addresses)
+	specAllocationListSize := len(spec.Allocations)
+	sizeDiff := specAddressListSize - specAllocationListSize - reserveAddressCount
+	logger.Printf("address count=%d, allocation count=%d, reserve count=%d",
+		specAddressListSize, specAllocationListSize, reserveAddressCount)
+
+	if sizeDiff < 0 {
+		// need more address
+		logger.Printf("need %d more address. creating...", -sizeDiff)
+		if err := d.CreateAddress(-sizeDiff); err != nil {
+			return err
+		}
+	}
+
+	ipamAddrLst, err := d.GetAddresses()
 	if err != nil {
 		return err
 	}
 
-	ipamAddrLst, err := d.GetAddresses(poolName)
-	if err != nil {
-		return err
+	if sizeDiff > 0 {
+		logger.Println("too many address. deleting unallocated address...")
+		tmpList := []IpamAddress{}
+		for _, ipamAddr := range ipamAddrLst {
+			if !ipamAddr.MarkedWith(Allocated) && ipamAddr.MarkedWith(Automated) {
+				if err = d.DeleteAddress(ipamAddr); err != nil {
+					return err
+				}
+				sizeDiff--
+			}
+			tmpList = append(tmpList, ipamAddr)
+			if sizeDiff <= 0 {
+				break
+			}
+		}
+		ipamAddrLst = tmpList
 	}
 
 	// Sync addresses
 	// Every addresses in driver is force sync to ippool now.
-	logger.Println("Syncing addresses")
+	logger.Println("Copying IpamAddr to AddressList")
 	spec.Addresses = []string{}
 	for _, ipamAddr := range ipamAddrLst {
 		spec.Addresses = append(spec.Addresses, ipamAddr.String())
@@ -47,14 +97,19 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 
 	// Sync allocations
 	// Every allocations in ippool is force sync to driver now.
-	logger.Println("Syncing allocations")
+	logger.Println("Mark allocation addresses alocated.")
 	for _, ipamAddr := range ipamAddrLst {
 		var toRelease bool = true
+		var alct *v1alpha1.IPAllocation
 		for _, alction := range spec.Allocations {
 			ip := net.ParseIP(alction.Address)
 			if ip == nil {
-				return fmt.Errorf("sync failed %v", spec.Addresses)
+				err = fmt.Errorf("sync failed: cannot parse address %v",
+					spec.Addresses)
+				logger.Println(err)
+				return err
 			}
+			alct = &alction
 			if ipamAddr.Equal(ip) {
 				toRelease = false
 				break
@@ -62,11 +117,9 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 		}
 		var err error
 		if toRelease {
-			logger.Println("Releasing ", ipamAddr)
-			err = d.MarkAddressReleased(poolName, ipamAddr)
+			err = d.MarkAddressReleased(ipamAddr)
 		} else {
-			logger.Println("Allocating ", ipamAddr)
-			err = d.MarkAddressAllocated(poolName, ipamAddr)
+			err = d.MarkAddressAllocated(ipamAddr, alct.PodNamespace+"/"+alct.PodName)
 		}
 		if err != nil {
 			return err

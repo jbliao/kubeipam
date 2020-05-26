@@ -12,9 +12,11 @@ import (
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
+	ippoolv1alpha1 "github.com/jbliao/kubeipam/api/v1alpha1"
 	"github.com/jbliao/kubeipam/pkg/cni"
 	"github.com/jbliao/kubeipam/pkg/cni/allocator"
 	"github.com/jbliao/kubeipam/pkg/cni/pool"
+	multustypes "gopkg.in/intel/multus-cni.v3/types"
 )
 
 func main() {
@@ -41,11 +43,11 @@ func loadNetConf(bytes []byte) (*cni.PluginConf, error) {
 }
 
 func setupLog(logFile string) *log.Logger {
-	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
-		if err == nil {
-			log.SetOutput(f)
-		}
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0664)
+	if err == nil {
+		log.SetOutput(f)
+	} else {
+		log.Printf("Cannot open file \"%s\" to log, fallback to default", logFile)
 	}
 	return log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
 }
@@ -57,6 +59,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	logger := setupLog(conf.IPAM.LogFile)
 	logger.Printf("cmdAdd begin")
+
+	k8sArgs := &multustypes.K8sArgs{}
+	types.LoadArgs(args.Args, k8sArgs)
 
 	pool, err := pool.NewKubeIPAMPool(&conf.IPAM, logger)
 	if err != nil {
@@ -70,8 +75,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	logger.Println("Allocating ip for", args.ContainerID)
-	ip, err := alctr.Allocate(pool, args.ContainerID)
+	info := &ippoolv1alpha1.IPAllocation{
+		Address:      "",
+		PodName:      (string)(k8sArgs.K8S_POD_NAME),
+		PodNamespace: (string)(k8sArgs.K8S_POD_NAMESPACE),
+		ContainerID:  args.ContainerID,
+	}
+	logger.Println("Allocating ip for", *info)
+	ip, err := alctr.Allocate(pool, info)
 	if err != nil {
 		logger.Println(err)
 		return err
@@ -86,22 +97,36 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	tmp = tmp.To4()
 
+	gw := net.ParseIP(conf.IPAM.Gateway)
+	routes := []*types.Route{{
+		Dst: net.IPNet{
+			IP:   net.IPv4(0, 0, 0, 0),
+			Mask: net.CIDRMask(0, 32),
+		},
+		GW: gw,
+	}}
+
+	for _, rawRoute := range conf.IPAM.Routes {
+		_, ipnet, err := net.ParseCIDR(rawRoute)
+		if err != nil {
+			return err
+		}
+		routes = append(routes, &types.Route{
+			Dst: *ipnet,
+			GW:  gw,
+		})
+	}
+
 	result := &current.Result{
 		IPs: []*current.IPConfig{{
 			Version: "4",
 			Address: net.IPNet{
-				IP:   ip.IP,
+				IP:   ip.NetIP(),
 				Mask: net.IPv4Mask(tmp[0], tmp[1], tmp[2], tmp[3]),
 			},
 			Gateway: net.ParseIP(conf.IPAM.Gateway),
 		}},
-		Routes: []*types.Route{{
-			Dst: net.IPNet{
-				IP:   net.IPv4(0, 0, 0, 0),
-				Mask: net.CIDRMask(0, 32),
-			},
-			GW: net.ParseIP(conf.IPAM.Gateway),
-		}},
+		Routes: routes,
 	}
 
 	logger.Printf("cmdAdd end %v", result)
@@ -129,6 +154,11 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err
 	}
 
-	logger.Printf("cmdDel end with err: %v", alctr.Release(pool, nil, args.ContainerID))
-	return nil
+	err = alctr.Release(pool, args.ContainerID)
+	if err != nil {
+		logger.Printf("release with err: %v", err)
+	}
+
+	logger.Printf("cmdDel end")
+	return err
 }

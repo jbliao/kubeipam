@@ -1,6 +1,7 @@
 package ipaddr
 
 import (
+	"fmt"
 	"net"
 	"testing"
 )
@@ -8,33 +9,26 @@ import (
 func TestIPAddressIncrease(t *testing.T) {
 	ip1 := NewIPAddress(net.ParseIP("10.1.1.2"))
 
-	if !ip1.IncreaseBy(50).Equal(net.ParseIP("10.1.1.52")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(253).Equal(net.ParseIP("10.1.1.255")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(254).Equal(net.ParseIP("10.1.2.0")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(255).Equal(net.ParseIP("10.1.2.1")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(65536).Equal(net.ParseIP("10.2.1.2")) {
-		t.Fail()
+	testCases := []struct {
+		increase   int
+		expectedIP string
+	}{
+		{50, "10.1.1.52"},
+		{253, "10.1.1.255"},
+		{254, "10.1.2.0"},
+		{255, "10.1.2.1"},
+		{65536, "10.2.1.2"},
+		{-1, "10.1.1.1"},
+		{-3, "10.1.0.255"},
+		{-259, "10.0.255.255"},
+		{-65535, "10.0.1.3"},
 	}
 
-	if !ip1.IncreaseBy(-1).Equal(net.ParseIP("10.1.1.1")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(-3).Equal(net.ParseIP("10.1.0.255")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(-259).Equal(net.ParseIP("10.0.255.255")) {
-		t.Fail()
-	}
-	if !ip1.IncreaseBy(-65535).Equal(net.ParseIP("10.0.1.3")) {
-		t.Fail()
+	for _, tc := range testCases {
+		if !ip1.IncreaseBy(tc.increase).Equal(net.ParseIP(tc.expectedIP)) {
+			fmt.Printf("%v %v %v", ip1, tc.increase, tc.expectedIP)
+			t.Fail()
+		}
 	}
 }
 

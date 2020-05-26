@@ -34,16 +34,16 @@ run: generate fmt vet manifests
 
 # Install CRDs into a cluster
 install: manifests
-	kustomize build config/crd | kubectl apply -f -
+	${GOBIN}/kustomize build config/crd | kubectl apply -f -
 
 # Uninstall CRDs from a cluster
 uninstall: manifests
-	kustomize build config/crd | kubectl delete -f -
+	${GOBIN}/kustomize build config/crd | kubectl delete -f -
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests
 	cd config/manager && kustomize edit set image controller=${IMG}
-	kustomize build config/default | kubectl apply -f -
+	${GOBIN}/kustomize build config/default | kubectl apply -f -
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
@@ -62,12 +62,14 @@ generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 # Build the docker image
-docker-build: test
-	docker build . -t ${IMG}
+docker-build:
+	docker build . -t jbliao/cni:latest -f Dockerfile.cni
+	#docker build . -t jbliao/controller:latest Dockerfile
 
 # Push the docker image
 docker-push:
-	docker push ${IMG}
+	docker push jbliao/cni
+	docker push jbliao/controller
 
 # find or download controller-gen
 # download controller-gen if necessary

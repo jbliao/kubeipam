@@ -1,0 +1,107 @@
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kubeipam
+rules:
+  - apiGroups: ["ipam.k8s.cc.cs.nctu.edu.tw"]
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kubeipam
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeipam
+subjects:
+- kind: ServiceAccount
+  name: kubeipam
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeipam
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kubeipam-cni-ds-amd64
+  namespace: kube-system
+  labels:
+    tier: node
+    app: kubeipam-cni
+    name: kubeipam-cni
+spec:
+  selector:
+    matchLabels:
+      name: kubeipam-cni
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: kubeipam-cni
+        name: kubeipam-cni
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      serviceAccountName: kubeipam
+      containers:
+        - name: kubeipam-cni
+          image: jbliao/cni
+          command: ["/entrypoint.sh"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "50Mi"
+            limits:
+              cpu: "100m"
+              memory: "50Mi"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+            - name: cniconf
+              mountPath: /host/etc/cni/net.d
+      volumes:
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin
+        - name: cniconf
+          hostPath:
+            path: /etc/cni/net.d/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeipam-controller
+  namespace: kube-system
+  labels:
+    app: kubeipam-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kubeipam-controller
+  template:
+    metadata:
+      labels:
+        app: kubeipam-controller
+    spec:
+      serviceAccountName: kubeipam
+      containers:
+        - name: kubeipam-controller
+          image: jbliao/controller
