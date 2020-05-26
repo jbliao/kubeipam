@@ -49,8 +49,10 @@ type IPPoolSpec struct {
 
 // IPAllocation represents metadata about the pod/container owner of a specific IP
 type IPAllocation struct {
-	Address     string `json:"address"`
-	ContainerID string `json:"id"`
+	Address      string `json:"address"`
+	ContainerID  string `json:"id"`
+	PodName      string `json:"podName"`
+	PodNamespace string `json:"podNamespace"`
 }
 
 // IPPoolStatus defines the observed state of IPPool

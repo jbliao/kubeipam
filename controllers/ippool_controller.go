@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -38,6 +39,20 @@ type IPPoolReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+func (r *IPPoolReconciler) getDriver(driverType string, rawConfig string) (d driver.Driver, err error) {
+	switch t := driverType; t {
+	case "netbox":
+		config := &driver.NetboxDriverConfig{}
+		if err = json.Unmarshal([]byte(rawConfig), &config); err != nil {
+			return
+		}
+		d, err = driver.NewNetboxDriver(config)
+	default:
+		d, err = nil, fmt.Errorf("Type %s not implemented", t)
+	}
+	return
+}
+
 // +kubebuilder:rbac:groups=ipam.k8s.cc.cs.nctu.edu.tw,resources=ippools,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ipam.k8s.cc.cs.nctu.edu.tw,resources=ippools/status,verbs=get;update;patch
 
@@ -47,29 +62,18 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (res ctrl.Result, err err
 	logger := r.Log.WithValues("ippool", req.NamespacedName)
 	gologger := log.New(log.Writer(), "", log.Flags()|log.Lshortfile)
 	// your logic here
-	res = ctrl.Result{Requeue: true}
-	err = nil
+	// failed to next retry time is 5 sec
+	dur, _ := time.ParseDuration("5s")
+	res = ctrl.Result{RequeueAfter: dur}
 
-	var driverObj driver.Driver
 	pool := &ipamv1alpha1.IPPool{}
-	err = r.Get(ctx, req.NamespacedName, pool)
-	if err != nil {
+	if err = r.Get(ctx, req.NamespacedName, pool); err != nil {
 		return
 	}
 
-	switch tp := pool.Spec.Type; tp {
-	case "netbox":
-		config := &driver.NetboxDriverConfig{}
-		if err = json.Unmarshal([]byte(pool.Spec.RawConfig), &config); err != nil {
-			return
-		}
-		driverObj, err = driver.NewNetboxDriver(config, gologger)
-	default:
-		driverObj, err = nil, fmt.Errorf("Type %s not implemented", tp)
-	}
-	if err != nil {
-		return
-	}
+	driverObj, err := r.getDriver(pool.Spec.Type, pool.Spec.RawConfig)
+	driverObj.SetPoolID(pool.Name)
+	driverObj.SetLogger(gologger)
 
 	if err = driver.Sync(driverObj, &pool.Spec, gologger); err != nil {
 		logger.Error(err, "")
@@ -81,7 +85,9 @@ func (r *IPPoolReconciler) Reconcile(req ctrl.Request) (res ctrl.Result, err err
 		return
 	}
 
-	res = ctrl.Result{}
+	// if success, resync after 30 sec
+	dur, _ = time.ParseDuration("30s")
+	res = ctrl.Result{RequeueAfter: dur}
 	return
 
 }
