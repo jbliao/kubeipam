@@ -51,9 +51,15 @@ spec:
                     type: string
                   id:
                     type: string
+                  podName:
+                    type: string
+                  podNamespace:
+                    type: string
                 required:
                 - address
                 - id
+                - podName
+                - podNamespace
                 type: object
               type: array
             rawConfig:

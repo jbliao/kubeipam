@@ -17,13 +17,13 @@ import (
 type NetboxIPAddress struct {
 	net.IP
 	tagset      map[string]interface{}
-	Origin      *models.IPAddress
-	Description string
+	origin      *models.IPAddress
+	description string
 }
 
 // MarkedWith impl IpamAddress.MarkedWith with netbox tag feature
-func (nba *NetboxIPAddress) MarkedWith(markStr IpamAddressMark) bool {
-	_, ok := nba.tagset[markStr.String()]
+func (nba *NetboxIPAddress) MarkedWith(markStr string) bool {
+	_, ok := nba.tagset[markStr]
 	return ok
 }
 
@@ -128,7 +128,7 @@ func (d *NetboxDriver) GetAddresses() (ret []IpamAddress, err error) {
 		}
 		ipa := &NetboxIPAddress{
 			tagset: tagset,
-			Origin: modelAddr,
+			origin: modelAddr,
 			IP:     netip,
 		}
 
@@ -150,7 +150,7 @@ func (d *NetboxDriver) MarkAddressAllocated(addr IpamAddress, des string) (err e
 		return
 	}
 
-	if netboxAddr.hasTag(Allocated.String()) {
+	if netboxAddr.hasTag(Allocated) {
 		return nil
 	}
 
@@ -164,11 +164,11 @@ func (d *NetboxDriver) MarkAddressAllocated(addr IpamAddress, des string) (err e
 
 	response, err := d.client.Ipam.IpamIPAddressesPartialUpdate(
 		ipam.NewIpamIPAddressesPartialUpdateParams().
-			WithID(netboxAddr.Origin.ID).
+			WithID(netboxAddr.origin.ID).
 			WithData(&models.WritableIPAddress{
-				ID:          netboxAddr.Origin.ID,
-				Address:     netboxAddr.Origin.Address,
-				Tags:        netboxAddr.addTag(Allocated.String()).tagsArray(),
+				ID:          netboxAddr.origin.ID,
+				Address:     netboxAddr.origin.Address,
+				Tags:        netboxAddr.addTag(Allocated).tagsArray(),
 				Description: des,
 			}),
 		nil,
@@ -195,17 +195,17 @@ func (d *NetboxDriver) MarkAddressReleased(addr IpamAddress) (err error) {
 		return
 	}
 
-	if !netboxAddr.hasTag(Allocated.String()) {
+	if !netboxAddr.hasTag(Allocated) {
 		return nil
 	}
 
 	response, err := d.client.Ipam.IpamIPAddressesPartialUpdate(
 		ipam.NewIpamIPAddressesPartialUpdateParams().
-			WithID(netboxAddr.Origin.ID).
+			WithID(netboxAddr.origin.ID).
 			WithData(&models.WritableIPAddress{
-				ID:      netboxAddr.Origin.ID,
-				Tags:    netboxAddr.removeTag(Allocated.String()).tagsArray(),
-				Address: netboxAddr.Origin.Address,
+				ID:      netboxAddr.origin.ID,
+				Tags:    netboxAddr.removeTag(Allocated).tagsArray(),
+				Address: netboxAddr.origin.Address,
 			}),
 		nil,
 	)
@@ -255,7 +255,7 @@ func (d *NetboxDriver) CreateAddress(count int) (err error) {
 				WithID(prefixID).
 				// data should be a WritableIPAddress object. this may be a bug of go-netbox
 				WithData(&models.WritablePrefix{
-					Tags: []string{d.poolIDTag(), Automated.String()},
+					Tags: []string{d.poolIDTag(), Automated},
 				}),
 			nil,
 		)
@@ -283,17 +283,17 @@ func (d *NetboxDriver) DeleteAddress(addr IpamAddress) (err error) {
 		return fmt.Errorf("cannot assert addr to NetboxIPAddress")
 	}
 
-	if !netboxAddr.hasTag(Automated.String()) {
+	if !netboxAddr.hasTag(Automated) {
 		err = fmt.Errorf("Cannot delete address which not auto created")
 		d.logger.Println(err)
 		return
 	}
 
-	if netboxAddr.Origin != nil {
+	if netboxAddr.origin != nil {
 		var response *ipam.IpamIPAddressesDeleteNoContent
 		response, err = d.client.Ipam.IpamIPAddressesDelete(
 			ipam.NewIpamIPAddressesDeleteParams().
-				WithID(netboxAddr.Origin.ID),
+				WithID(netboxAddr.origin.ID),
 			nil,
 		)
 		d.logger.Printf("Netbox delete ipaddress with response %v err %v",

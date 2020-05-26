@@ -8,26 +8,21 @@ import (
 	"github.com/jbliao/kubeipam/api/v1alpha1"
 )
 
-type IpamAddressMark string
-
-func (mark IpamAddressMark) String() string {
-	return (string)(mark)
-}
-
 const (
 	// Automated indicate that the address is created by k8s, not admin
-	Automated IpamAddressMark = "k8s-automated"
+	Automated = "k8s-automated"
 	// Allocated indicate that the address is used by pod
-	Allocated IpamAddressMark = "k8s-allocated"
+	Allocated = "k8s-allocated"
 )
 
+// IpamAddress define interface that ip address of driver need impl
 type IpamAddress interface {
 	Equal(net.IP) bool
-	MarkedWith(IpamAddressMark) bool
+	MarkedWith(string) bool
 	String() string
 }
 
-const ReserveAddressCount int = 1
+const reserveAddressCount int = 1
 
 // Driver for ipam syncing
 type Driver interface {
@@ -57,9 +52,9 @@ func Sync(d Driver, spec *v1alpha1.IPPoolSpec, logger *log.Logger) error {
 	logger.Println("Sync start")
 	specAddressListSize := len(spec.Addresses)
 	specAllocationListSize := len(spec.Allocations)
-	sizeDiff := specAddressListSize - specAllocationListSize - ReserveAddressCount
+	sizeDiff := specAddressListSize - specAllocationListSize - reserveAddressCount
 	logger.Printf("address count=%d, allocation count=%d, reserve count=%d",
-		specAddressListSize, specAllocationListSize, ReserveAddressCount)
+		specAddressListSize, specAllocationListSize, reserveAddressCount)
 
 	if sizeDiff < 0 {
 		// need more address
