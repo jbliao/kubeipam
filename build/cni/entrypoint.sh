@@ -1,10 +1,10 @@
 #!/bin/sh -xe
 
 SERVICE_ACCOUNT_PATH=/var/run/secrets/kubernetes.io/serviceaccount
-CNI_KUBECONFIG=/host/etc/cni/net.d/cccni.kubeconfig
+CNI_KUBECONFIG=/host/etc/cni/net.d/kubeipam.kubeconfig
 KUBE_CA_FILE=${SERVICE_ACCOUNT_PATH}/ca.crt
 
-install -m 755 /cccni /host/opt/cni/bin
+install -m 755 /kubeipam-cni /host/opt/cni/bin
 cat > ${CNI_KUBECONFIG} << EOF
 apiVersion: v1
 kind: Config

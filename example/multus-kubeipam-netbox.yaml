@@ -1,3 +1,5 @@
+# This file create a environment with kubeipam syncing with netbox and provide
+# ip address for multus cni.
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -10,6 +12,12 @@ rules:
     verbs:
       - '*'
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeipam
+  namespace: kube-system
+---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -20,12 +28,6 @@ roleRef:
   name: kubeipam
 subjects:
 - kind: ServiceAccount
-  name: kubeipam
-  namespace: kube-system
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
   name: kubeipam
   namespace: kube-system
 ---
@@ -60,7 +62,7 @@ spec:
       serviceAccountName: kubeipam
       containers:
         - name: kubeipam-cni
-          image: jbliao/cni
+          image: jbliao/kubeipam-cni
           command: ["/entrypoint.sh"]
           resources:
             requests:
@@ -105,3 +107,41 @@ spec:
       containers:
         - name: kubeipam-controller
           image: jbliao/controller
+---
+apiVersion: ipam.k8s.cc.cs.nctu.edu.tw/v1alpha1
+kind: IPPool
+metadata:
+  name: ippool-sample
+spec:
+  type: "netbox"
+  addresses: []
+  allocations: []
+  rawConfig: |
+    {
+      "host": "10.99.198.98",
+      "apiKey": "0123456789abcdef0123456789abcdef01234567",
+      "prefix": "10.20.20.0/24"
+    }
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: bridge-conf
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.0",
+        "type": "bridge",
+        "name": "multus",
+        "master": "multus0",
+        "ipam": {
+          "type": "kubeipam-cni",
+          "configPath": "/etc/cni/net.d/kubeipam.kubeconfig",
+          "poolName": "ippool-sample",
+          "poolNamespace": "default",
+          "mask": "255.255.255.0",
+          "gateway": "10.20.20.254",
+          "routes": ["10.20.0.0/16"],
+          "logFile": "/var/log/kubeipam.log"
+        }
+    }

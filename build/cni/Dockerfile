@@ -10,18 +10,18 @@ COPY go.sum go.sum
 RUN go mod download
 
 # Copy the go source
-COPY cmd/cccni/main.go main.go
+COPY cmd/kubeipam-cni/main.go main.go
 COPY api/ api/
 COPY pkg/ pkg/
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o cccni main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o kubeipam-cni main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM centos:centos7
 WORKDIR /
-COPY --from=builder /workspace/cccni .
-COPY images/entrypoint.sh .
+COPY --from=builder /workspace/kubeipam-cni .
+COPY build/cni/entrypoint.sh .
 
 ENTRYPOINT ["/entrypoint.sh"]

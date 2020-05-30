@@ -23,10 +23,10 @@ manager: generate fmt vet
 
 # Build cni plugin
 cni:
-	go build -o bin/cccni cmd/cccni/main.go
+	go build -o bin/kubeipam-cni cmd/kubeipam-cni/main.go
 
 install-cni: cni
-	install -m 755 bin/cccni /opt/cni/bin
+	install -m 755 bin/kubeipam-cni /opt/cni/bin
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
@@ -63,13 +63,13 @@ generate: controller-gen
 
 # Build the docker image
 docker-build:
-	docker build . -t jbliao/cni:latest -f Dockerfile.cni
-	#docker build . -t jbliao/controller:latest Dockerfile
+	docker build . -t jbliao/kubeipam-cni:latest -f build/cni/Dockerfile
+	docker build . -t jbliao/kubeipam-controller:latest -f build/controller/Dockerfile
 
 # Push the docker image
 docker-push:
-	docker push jbliao/cni
-	docker push jbliao/controller
+	docker push jbliao/kubeipam-cni
+	docker push jbliao/kubeipam-controller
 
 # find or download controller-gen
 # download controller-gen if necessary
